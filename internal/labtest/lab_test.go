@@ -62,7 +62,15 @@ func adConfig(t *testing.T) ad.Config {
 		t.Fatal(err)
 	}
 	return ad.Config{Realm: env(t, "AD_LAB_REALM", ""), Resolver: ad.NewDNSResolver(strings.Split(env(t, "AD_LAB_DNS", ""), ",")...),
-		RootCAs: pool}
+		RootCAs: pool, Preferred: []string{labDC(t)}}
+}
+
+// labDC is the DC both the administrator and the service use, so the test
+// does not depend on replication between the two DCs (PROV_LAB_DC, default
+// dc1 of the realm).
+func labDC(t *testing.T) string {
+	t.Helper()
+	return env(t, "PROV_LAB_DC", "dc1."+strings.ToLower(env(t, "AD_LAB_REALM", "")))
 }
 
 func adminConn(t *testing.T, ctx context.Context) *ad.Conn {
@@ -124,6 +132,7 @@ func TestLabInvitation(t *testing.T) {
 realm = %q
 ca_file = %q
 dns_servers = %s
+preferred = [%q]
 [account]
 username = %q
 [scope]
@@ -134,7 +143,7 @@ index_cache_seconds = 0
 database = %q
 [api]
 allowed_uids = [1001]
-`, realm, env(t, "AD_LAB_CA", ""), tomlList(strings.Split(env(t, "AD_LAB_DNS", ""), ",")),
+`, realm, env(t, "AD_LAB_CA", ""), tomlList(strings.Split(env(t, "AD_LAB_DNS", ""), ",")), labDC(t),
 		env(t, "PROV_LAB_ACCOUNT", "svc-conductor-prov"), scope, filepath.Join(dir, "p.db"))
 	cfg, err := config.Parse(cfgText)
 	if err != nil {
@@ -175,9 +184,15 @@ allowed_uids = [1001]
 			t.Errorf("%s: privileged=%v (%v), want %v", sam, r.Privileged, r.PrivilegedReasons, privileged)
 		}
 		if privileged {
+			// Out of scope is checked first; inside the scope the refusal
+			// must name the privilege.
+			want := provapi.CodeOutOfScope
+			if r.InScope {
+				want = provapi.CodePrivileged
+			}
 			pe := h.call(provapi.OpTokenIssue, &provapi.TokenIssueParams{SID: u.SID.String(), Purpose: "reset"}, nil)
-			if pe == nil || pe.Code != provapi.CodePrivileged {
-				t.Errorf("%s: token.issue: %v", sam, pe)
+			if pe == nil || pe.Code != want {
+				t.Errorf("%s: token.issue: %v, want %s", sam, pe, want)
 			}
 		}
 	}
