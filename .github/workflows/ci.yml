@@ -1,0 +1,40 @@
+# Continuous integration of conductor-provisioner: the quality gates
+# (gofmt, vet, staticcheck, govulncheck, go test -race) and a short fuzz run
+# of the protocol decoder. Actions are pinned by commit SHA.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Manual runs on main (for example after a change of the CI settings,
+  # when there is no new commit to push).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: conductor-provisioner
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: conductor-provisioner/go.mod
+          cache-dependency-path: conductor-provisioner/go.sum
+      - name: gofmt, vet, staticcheck, govulncheck, go test -race
+        working-directory: conductor-provisioner
+        run: make check
+      - name: Fuzz the protocol decoder
+        working-directory: conductor-provisioner
+        run: if [ -d provapi ]; then make fuzz FUZZTIME=15s; fi

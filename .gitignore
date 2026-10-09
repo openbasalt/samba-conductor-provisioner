@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/build/
+temp/
+*.env
+!*.env.example
+*.db
+/.tools/
