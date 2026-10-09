@@ -1,0 +1,50 @@
+# /etc/conductor-provisioner/provisioner.toml (root:conductor-provisioner, 0640).
+# Reference: docs/config.md. Unknown keys are refused at load.
+
+[domain]
+realm = "EXAMPLE.COM"
+# The domain CA that signs the domain controllers' LDAPS certificates
+# (pinned: the system trust store is not used).
+ca_file = "/etc/conductor-provisioner/domain-ca.pem"
+preferred = ["dc1.example.com"]
+dcs = []
+dns_servers = []
+# LDAP simple bind over LDAPS when no KDC answers.
+simple_bind_fallback = false
+
+[account]
+# The delegated account (docs/delegation.md). Its password reaches the
+# service as the systemd credential "account-password".
+username = "svc-conductor-prov"
+
+[scope]
+# OUs (DNs) the account is delegated on. Every target must be below one
+# of them. Empty: the service refuses every operation.
+ous = ["OU=People,OU=Lab,DC=example,DC=com"]
+
+[privileged]
+# SIDs of conductor's role groups (admin, helpdesk, auditor); members are
+# privileged in addition to the well-known groups and the ACL index.
+extra_group_sids = []
+# How long a built index is reused (seconds, 0 to 300). Operations
+# re-read the target's own attributes every time regardless.
+index_cache_seconds = 60
+
+[tokens]
+invite_hours = 72          # 1 to 168
+reset_minutes = 30         # 5 to 120
+complete_minutes = 30      # 5 to 240, after the password step of an invitation
+per_user_per_day = 3       # 1 to 50, tokens issued per account in 24 hours
+
+[limits]
+# Hourly ceilings the caller cannot change (0 refuses everything).
+token_issues_per_hour = 200
+password_sets_per_hour = 200
+enables_per_hour = 200
+
+[state]
+database = "/var/lib/conductor-provisioner/provisioner.db"
+
+[api]
+socket = "/run/conductor-provisioner/api.sock"
+allowed_users = ["conductor"]
