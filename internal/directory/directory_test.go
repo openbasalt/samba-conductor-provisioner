@@ -1,8 +1,6 @@
 package directory
 
 import (
-	"context"
-	"errors"
 	"slices"
 	"testing"
 
@@ -40,18 +38,5 @@ func TestEntryValues(t *testing.T) {
 	if !slices.Equal(e.Values("givenName"), []string{"Ana"}) || !slices.Equal(e.Values("employeeID"), []string{"E1"}) ||
 		e.Values("title") != nil || !slices.Equal(e.Values("proxyAddresses"), []string{"smtp:x@b"}) || !e.IsOU() || e.IsUser() {
 		t.Fatalf("%+v", e)
-	}
-}
-
-func TestADUnsupportedWritesRefuseBeforeWriting(t *testing.T) {
-	d := &AD{}
-	if err := d.CreateUser(context.Background(), NewUser{}); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("create: %v", err)
-	}
-	for _, ch := range []AttrChange{{Name: "employeeID", After: []string{"1"}}, {Name: "proxyAddresses", After: []string{"smtp:a@b"}}} {
-		err := d.ModifyUser(context.Background(), "CN=A,OU=P,DC=example,DC=com", []AttrChange{{Name: "sn", After: []string{"x"}}, ch})
-		if !errors.Is(err, ErrUnsupported) {
-			t.Fatalf("%s: %v", ch.Name, err)
-		}
 	}
 }

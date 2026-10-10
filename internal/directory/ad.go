@@ -339,57 +339,28 @@ func MatchKinds(q ConflictQuery, sam, upn, mail, marker string, proxies []string
 	return kinds
 }
 
-// CreateUser implements Directory. The samba-conductor-ad version this
-// module pins has no constructor that writes provapi.MarkerAttribute, and
-// an account must never exist without its marker (it would look like an
-// unmanaged account in the scope), so the create is refused before any
-// write until the ad module can express it.
-func (d *AD) CreateUser(_ context.Context, _ NewUser) error {
-	return fmt.Errorf("%w: creating an account with %s needs a samba-conductor-ad version that can write it",
-		ErrUnsupported, provapi.MarkerAttribute)
-}
-
-// updateField returns the field of the ad module's UserUpdate that writes
-// a plan attribute (nil when UserUpdate has none).
-func updateField(u *ad.UserUpdate, attr string) **string {
-	switch attr {
-	case "givenName":
-		return &u.GivenName
-	case "sn":
-		return &u.Surname
-	case "displayName":
-		return &u.DisplayName
-	case "mail":
-		return &u.Mail
-	case "title":
-		return &u.Title
-	case "department":
-		return &u.Department
-	case "telephoneNumber":
-		return &u.TelephoneNumber
-	case "mobile":
-		return &u.Mobile
+// CreateUser implements Directory: one add with the password, disabled,
+// pwdLastSet 0 and the marker.
+func (d *AD) CreateUser(ctx context.Context, u NewUser) error {
+	op, err := ad.CreateUser(ad.NewUser{ParentDN: u.ParentDN, CN: u.CN, SAMAccountName: u.SAM, UserPrincipalName: u.UPN,
+		Mail: u.Mail, GivenName: u.Attrs["givenName"], Surname: u.Attrs["sn"], DisplayName: u.Attrs["displayName"],
+		Title: u.Attrs["title"], Department: u.Attrs["department"], TelephoneNumber: u.Attrs["telephoneNumber"],
+		Mobile: u.Attrs["mobile"], EmployeeID: u.Attrs["employeeID"], Password: u.Password, Disabled: true,
+		MustChangePassword: true, ExtraAttributes: map[string][]string{provapi.MarkerAttribute: {u.Marker}}})
+	if err != nil {
+		return err
 	}
-	return nil
+	return d.Apply(ctx, op)
 }
 
-// ModifyUser implements Directory with the ad module's UserUpdate (one
-// modify request). Attributes UserUpdate cannot write (employeeID,
-// proxyAddresses) are refused before any write.
+// ModifyUser implements Directory: one modify, conditional on the before
+// values.
 func (d *AD) ModifyUser(ctx context.Context, dn string, changes []AttrChange) error {
-	var u ad.UserUpdate
+	rs := make([]ad.AttrReplace, 0, len(changes))
 	for _, ch := range changes {
-		f := updateField(&u, ch.Name)
-		if f == nil || len(ch.After) > 1 {
-			return fmt.Errorf("%w: writing %s needs a samba-conductor-ad version that can write it", ErrUnsupported, ch.Name)
-		}
-		v := ""
-		if len(ch.After) == 1 {
-			v = ch.After[0]
-		}
-		*f = &v
+		rs = append(rs, ad.AttrReplace{Name: ch.Name, Before: ch.Before, After: ch.After})
 	}
-	op, err := ad.UpdateUser(dn, u)
+	op, err := ad.ReplaceAttributes(dn, rs)
 	if err != nil {
 		return err
 	}

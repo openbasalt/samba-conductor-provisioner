@@ -172,10 +172,7 @@ quarantine OU of a Google-first scope is inside its managed OU).
 
 `user.set_enabled` and `user.move` with nothing to write (already in that
 state, already in that OU) succeed with `changed = false` and count
-toward no ceiling. With the `ad` module version this release pins, the
-directory implementation cannot write `msDS-cloudExtensionAttribute1`,
-`employeeID` or `proxyAddresses`: `user.create` and updates of those two
-attributes are refused with `directory` before any write.
+toward no ceiling.
 
 ## Audit
 
