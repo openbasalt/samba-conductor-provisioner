@@ -12,10 +12,20 @@
 // OU=People,OU=Lab,<domain>). The seeded lab has lab.admin and
 // helpdesk.user privileged and normal.user not.
 //
-// The test creates a disabled account in the scope OU with the
+// TestLabInvitation creates a disabled account in the scope OU with the
 // administrator, then issues an invitation, sets the password and
 // completes it through the service with the delegated account, signs in
 // with the new password, and deletes the account.
+//
+// TestLabGoogleFirst needs the delegation with the Google-first rights
+// (`conductor-provisioner delegation preview --google-first`) and a
+// quarantine OU below the scope OU (PROV_LAB_QUARANTINE_OU, default
+// OU=Quarantine,<scope OU>; created by the administrator when missing).
+// Through the service it creates a Google-first account, updates it,
+// disables it and moves it to the quarantine OU, re-enables it and moves
+// it back; it checks the refusals for privileged accounts (out of scope,
+// and a Google-first account the administrator made a member of Domain
+// Admins), then deletes the account with the administrator.
 package labtest
 
 import (
@@ -23,14 +33,19 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	ad "github.com/openbasalt/samba-conductor-ad"
+	"github.com/openbasalt/samba-conductor-ad/escape"
+	"github.com/openbasalt/samba-conductor-ad/sid"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/config"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/directory"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/secret"
@@ -118,9 +133,18 @@ func (h *harness) call(op provapi.Op, p provapi.Params, out any) *provapi.Error 
 	return nil
 }
 
-func TestLabInvitation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+// labService is the service under test with the delegated account, and
+// the administrator's connection that prepares and checks the directory.
+type labService struct {
+	h     *harness
+	admin *ad.Conn
+	st    *store.Store
+	scope string
+	realm string
+}
+
+func newLabService(t *testing.T, ctx context.Context) *labService {
+	t.Helper()
 	accountPassword := env(t, "PROV_LAB_ACCOUNT_PASSWORD", "")
 	admin := adminConn(t, ctx)
 	scope := env(t, "PROV_LAB_SCOPE_OU", "OU=People,OU=Lab,"+admin.BaseDN())
@@ -153,22 +177,29 @@ allowed_uids = [1001]
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sealed.Close()
+	t.Cleanup(sealed.Close)
 	d, err := directory.NewAD(cfg, sealed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	t.Cleanup(d.Close)
 	st, err := store.Open(ctx, cfg.State.Database, store.AuditKey(make([]byte, 32)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = st.Close() }()
+	t.Cleanup(func() { _ = st.Close() })
 	svc, err := server.NewService(server.Options{Config: cfg, Store: st, Directory: d, Version: "lab"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, svc: svc}
+	return &labService{h: &harness{t: t, svc: svc}, admin: admin, st: st, scope: scope, realm: realm}
+}
+
+func TestLabInvitation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	ls := newLabService(t, ctx)
+	h, admin, st, scope, realm := ls.h, ls.admin, ls.st, ls.scope, ls.realm
 
 	// Privileged accounts are refused, an ordinary one is not.
 	for sam, privileged := range map[string]bool{"lab.admin": true, "helpdesk.user": true, "normal.user": false} {
@@ -263,4 +294,201 @@ func tomlList(v []string) string {
 		q = append(q, fmt.Sprintf("%q", s))
 	}
 	return "[" + strings.Join(q, ", ") + "]"
+}
+
+func TestLabGoogleFirst(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	ls := newLabService(t, ctx)
+	h, admin := ls.h, ls.admin
+	quarantine := env(t, "PROV_LAB_QUARANTINE_OU", "OU=Quarantine,"+ls.scope)
+	qParent, qName, err := escape.ParentDN(quarantine)
+	if err != nil {
+		t.Fatalf("PROV_LAB_QUARANTINE_OU: %v", err)
+	}
+	if op, err := ad.CreateOU(ad.NewOU{ParentDN: qParent, Name: qName}); err == nil {
+		if err := admin.Apply(ctx, op); err == nil {
+			t.Cleanup(func() {
+				if del, err := ad.DeleteObject(quarantine); err == nil {
+					_ = admin.Apply(context.Background(), del)
+				}
+			})
+		} else if !errors.Is(err, ad.ErrAlreadyExists) {
+			t.Fatalf("quarantine OU: %v", err)
+		}
+	}
+
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	suffix := hex.EncodeToString(b)
+	id := fmt.Sprintf("%d", 100000000000+int(b[0])<<16+int(b[1])<<8+int(b[2]))
+	marker := provapi.Marker(id)
+	sam := "gf-lab-" + suffix
+	create := &provapi.UserCreateParams{ScopeOU: ls.scope, SAM: sam, UPN: sam + "@" + strings.ToLower(ls.realm),
+		CN: "GF Lab " + suffix, Mail: sam + "@example.com", GivenName: "Gf", Sn: "Lab", DisplayName: "Gf Lab " + suffix,
+		Fields: map[string]string{"title": "Tester", "employeeID": "L-" + suffix}, Marker: marker, Reference: "lab-run"}
+	var created provapi.UserCreateResult
+	if pe := h.call(provapi.OpUserCreate, create, &created); pe != nil {
+		t.Fatalf("user.create: %v", pe)
+	}
+	userSID, err := sid.Parse(created.SID)
+	if err != nil {
+		t.Fatalf("user.create result %+v: %v", created, err)
+	}
+	t.Cleanup(func() {
+		if dn, err := admin.FindBySID(context.Background(), userSID); err == nil {
+			if del, err := ad.DeleteObject(dn); err == nil {
+				_ = admin.Apply(context.Background(), del)
+			}
+		}
+	})
+	read := func() *ldap.Entry {
+		t.Helper()
+		dn, err := admin.FindBySID(ctx, userSID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := admin.Get(ctx, dn, "distinguishedName", "userAccountControl", "pwdLastSet", "sn", "title", "employeeID",
+			"proxyAddresses", provapi.MarkerAttribute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	disabled := func(e *ldap.Entry) bool {
+		v, _ := strconv.ParseUint(e.GetAttributeValue("userAccountControl"), 10, 32)
+		return ad.UAC(v).Has(ad.UACAccountDisable)
+	}
+	e := read()
+	if !disabled(e) || e.GetAttributeValue("pwdLastSet") != "0" || e.GetAttributeValue(provapi.MarkerAttribute) != marker ||
+		e.GetAttributeValue("title") != "Tester" {
+		t.Fatalf("created account: dn %s uac %s pwdLastSet %s marker %q title %q", e.DN, e.GetAttributeValue("userAccountControl"),
+			e.GetAttributeValue("pwdLastSet"), e.GetAttributeValue(provapi.MarkerAttribute), e.GetAttributeValue("title"))
+	}
+	// The same values again are refused: the account exists.
+	if pe := h.call(provapi.OpUserCreate, create, nil); pe == nil || pe.Code != provapi.CodeExists {
+		t.Fatalf("second user.create: %v", pe)
+	}
+
+	// Update the Google-owned attributes.
+	upd := &provapi.UserUpdateParams{SID: created.SID, Marker: marker, Reference: "lab-run", Changes: []provapi.UserChange{
+		{Attr: "sn", Before: "Lab", After: "Lab Updated"},
+		{Attr: "employeeID", Before: "L-" + suffix, After: ""},
+		{Attr: "proxyAddresses", Before: "", After: provapi.JoinValues([]string{"smtp:" + sam + "-old@example.com"})},
+	}}
+	if pe := h.call(provapi.OpUserUpdate, upd, nil); pe != nil {
+		t.Fatalf("user.update: %v", pe)
+	}
+	e = read()
+	if e.GetAttributeValue("sn") != "Lab Updated" || e.GetAttributeValue("employeeID") != "" ||
+		len(e.GetAttributeValues("proxyAddresses")) != 1 {
+		t.Fatalf("updated account: sn %q employeeID %q proxyAddresses %v", e.GetAttributeValue("sn"),
+			e.GetAttributeValue("employeeID"), e.GetAttributeValues("proxyAddresses"))
+	}
+	// The same update again: the current values are no longer the before
+	// values.
+	if pe := h.call(provapi.OpUserUpdate, upd, nil); pe == nil || pe.Code != provapi.CodeConflict {
+		t.Fatalf("second user.update: %v", pe)
+	}
+
+	// Enable (as an invitation would), then disable and quarantine.
+	var w provapi.UserWriteResult
+	if pe := h.call(provapi.OpUserSetEnabled, &provapi.UserSetEnabledParams{SID: created.SID, Enabled: true, Marker: marker}, &w); pe != nil || !w.Enabled {
+		t.Fatalf("enable: %v %+v", pe, w)
+	}
+	if pe := h.call(provapi.OpUserSetEnabled, &provapi.UserSetEnabledParams{SID: created.SID, Enabled: false, Marker: marker}, &w); pe != nil || w.Enabled {
+		t.Fatalf("disable: %v %+v", pe, w)
+	}
+	if pe := h.call(provapi.OpUserMove, &provapi.UserMoveParams{SID: created.SID, ToOU: quarantine, Marker: marker}, &w); pe != nil {
+		t.Fatalf("move to quarantine: %v", pe)
+	}
+	if e = read(); !disabled(e) || !escape.EqualDN(parentOf(t, e.DN), quarantine) {
+		t.Fatalf("quarantined account: %s disabled=%v", e.DN, disabled(e))
+	}
+	// Back: re-enable and move to the scope OU.
+	if pe := h.call(provapi.OpUserSetEnabled, &provapi.UserSetEnabledParams{SID: created.SID, Enabled: true, Marker: marker}, nil); pe != nil {
+		t.Fatalf("re-enable: %v", pe)
+	}
+	if pe := h.call(provapi.OpUserMove, &provapi.UserMoveParams{SID: created.SID, ToOU: ls.scope, Marker: marker}, nil); pe != nil {
+		t.Fatalf("move back: %v", pe)
+	}
+	if e = read(); disabled(e) || !escape.EqualDN(parentOf(t, e.DN), ls.scope) {
+		t.Fatalf("restored account: %s disabled=%v", e.DN, disabled(e))
+	}
+	// Another marker is refused.
+	if pe := h.call(provapi.OpUserSetEnabled, &provapi.UserSetEnabledParams{SID: created.SID, Enabled: false,
+		Marker: provapi.Marker(id + "0")}, nil); pe == nil || pe.Code != provapi.CodeMarkerMismatch {
+		t.Fatalf("marker mismatch: %v", pe)
+	}
+
+	// Privileged accounts: the seeded administrators (out of scope first),
+	// and the new account once an administrator adds it to Domain Admins.
+	for _, name := range []string{"lab.admin", "helpdesk.user"} {
+		u, err := admin.FindUser(ctx, name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var r provapi.UserResult
+		if pe := h.call(provapi.OpUserCheck, &provapi.UserCheckParams{SID: u.SID.String()}, &r); pe != nil {
+			t.Fatalf("%s: %v", name, pe)
+		}
+		want := provapi.CodeOutOfScope
+		if r.InScope {
+			want = provapi.CodePrivileged
+		}
+		if pe := h.call(provapi.OpUserSetEnabled, &provapi.UserSetEnabledParams{SID: u.SID.String(), Enabled: false, Marker: marker}, nil); pe == nil || pe.Code != want {
+			t.Errorf("%s: user.set_enabled: %v, want %s", name, pe, want)
+		}
+	}
+	da, err := admin.FindGroup(ctx, "Domain Admins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dn := read().DN
+	add, err := ad.AddGroupMember(da.DN, dn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.Apply(ctx, add); err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	removeDA := func() {
+		if removed {
+			return
+		}
+		if rm, err := ad.RemoveGroupMember(da.DN, dn); err == nil {
+			if err := admin.Apply(context.Background(), rm); err == nil {
+				removed = true
+			}
+		}
+	}
+	t.Cleanup(removeDA)
+	for op, p := range map[provapi.Op]provapi.Params{
+		provapi.OpUserSetEnabled: &provapi.UserSetEnabledParams{SID: created.SID, Enabled: false, Marker: marker},
+		provapi.OpUserMove:       &provapi.UserMoveParams{SID: created.SID, ToOU: quarantine, Marker: marker},
+		provapi.OpUserUpdate: &provapi.UserUpdateParams{SID: created.SID, Marker: marker,
+			Changes: []provapi.UserChange{{Attr: "sn", Before: "Lab Updated", After: "Lab"}}},
+	} {
+		if pe := h.call(op, p, nil); pe == nil || pe.Code != provapi.CodePrivileged {
+			t.Errorf("%s on a Domain Admins member: %v, want privileged", op, pe)
+		}
+	}
+	if e = read(); disabled(e) || e.GetAttributeValue("sn") != "Lab Updated" {
+		t.Fatal("a privileged account was changed")
+	}
+	removeDA()
+	if res, err := ls.st.VerifyAudit(ctx); err != nil || res.BrokenAt != 0 {
+		t.Fatalf("audit %+v %v", res, err)
+	}
+}
+
+// parentOf returns the parent DN of dn.
+func parentOf(t *testing.T, dn string) string {
+	t.Helper()
+	parent, _, err := escape.ParentDN(dn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parent
 }

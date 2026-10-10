@@ -41,7 +41,8 @@ func opStatus(ctx context.Context, s *Service, c *call, _ *provapi.NoParams) (an
 		ScopeOUs:     append([]string{}, s.cfg.Scope.OUs...),
 		IndexBuiltAt: s.indexBuiltAt().UTC(),
 		Limits: provapi.Limits{TokenIssues: use(limitTokenIssues), PasswordSets: use(limitPasswordSets),
-			Enables: use(limitEnables)},
+			Enables: use(limitEnables), Creates: use(limitCreates), Updates: use(limitUpdates), Moves: use(limitMoves),
+			Disables: use(limitDisables)},
 		TokenCounts: provapi.TokenCounts{Open: counts[store.StateOpen], PasswordSet: counts[store.StatePasswordSet],
 			Used: counts[store.StateUsed], Revoked: counts[store.StateRevoked], Expired: counts[store.StateExpired]},
 	}, nil
@@ -280,6 +281,12 @@ func (s *Service) writeError(c *call, what string, err error) *provapi.Error {
 		return fail(provapi.CodeDirectory, "the delegated account may not %s (check its delegation)", what)
 	case errors.Is(err, ad.ErrConflict):
 		return fail(provapi.CodeDirectory, "the account changed while it was being written")
+	case errors.Is(err, ad.ErrAlreadyExists):
+		pe := fail(provapi.CodeExists, "an object with that name already exists there")
+		pe.Kinds = []string{"dn"}
+		return pe
+	case errors.Is(err, directory.ErrUnsupported):
+		return fail(provapi.CodeDirectory, "the directory implementation cannot %s", what)
 	}
 	return fail(provapi.CodeDirectory, "the directory refused to %s", what)
 }

@@ -6,7 +6,7 @@
 //	conductor-provisioner serve       [--config FILE]
 //	conductor-provisioner status      [--config FILE]
 //	conductor-provisioner audit       verify | export [--config FILE]
-//	conductor-provisioner delegation  preview --ou DN [--account-sid SID] [--config FILE]
+//	conductor-provisioner delegation  preview --ou DN [--account-sid SID] [--google-first] [--config FILE]
 //	conductor-provisioner healthcheck [--config FILE]
 //	conductor-provisioner version
 //
@@ -51,8 +51,9 @@ commands:
   serve         run the API for conductor (systemd socket activation or api.socket)
   status        configuration summary, tokens by state, audit rows
   audit         verify | export the hash-chained audit log (needs the state key)
-  delegation    preview --ou DN: the samba-tool commands that delegate the OU
-                to the configured account
+  delegation    preview --ou DN [--google-first]: the samba-tool commands that
+                delegate the OU to the configured account (--google-first adds
+                the rights of the Google-first plan operations)
   healthcheck   exit 0 when the configuration loads and the API socket exists
   version
 `)
@@ -81,6 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cfgPath := fs.String("config", config.DefaultPath, "configuration file")
 	ou := fs.String("ou", "", "the OU to delegate (delegation preview)")
 	accountSID := fs.String("account-sid", "", "the account's SID, instead of resolving it in AD (delegation preview)")
+	googleFirst := fs.Bool("google-first", false, "add the rights of the Google-first plan operations (delegation preview)")
 	if err := fs.Parse(rest); err != nil {
 		return exitUsage
 	}
@@ -99,10 +101,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return audit(*cfgPath, sub, stdout, stderr)
 	case "delegation":
 		if sub != "preview" || *ou == "" {
-			fmt.Fprintln(stderr, "usage: conductor-provisioner delegation preview --ou DN [--account-sid SID]")
+			fmt.Fprintln(stderr, "usage: conductor-provisioner delegation preview --ou DN [--account-sid SID] [--google-first]")
 			return exitUsage
 		}
-		return delegationPreview(*cfgPath, *ou, *accountSID, stdout, stderr)
+		return delegationPreview(*cfgPath, *ou, *accountSID, *googleFirst, stdout, stderr)
 	}
 	usage(stderr)
 	return exitUsage
@@ -167,6 +169,8 @@ func status(cfgPath string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "ceilings     token issues %d/h, password sets %d/h, enables %d/h\n",
 		cfg.Limits.TokenIssuesPerHour, cfg.Limits.PasswordSetsPerHour, cfg.Limits.EnablesPerHour)
+	fmt.Fprintf(stdout, "             creates %d/h, updates %d/h, moves %d/h, disables %d/h\n",
+		cfg.Limits.CreatesPerHour, cfg.Limits.UpdatesPerHour, cfg.Limits.MovesPerHour, cfg.Limits.DisablesPerHour)
 	fmt.Fprintf(stdout, "tokens       invite %d h, reset %d min, complete %d min, %d per account per day\n",
 		cfg.Tokens.InviteHours, cfg.Tokens.ResetMinutes, cfg.Tokens.CompleteMinutes, cfg.Tokens.PerUserPerDay)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
