@@ -12,6 +12,8 @@ SocketGroup=conductor
 SocketMode=0660
 DirectoryMode=0755
 Accept=no
+# The unit names differ (api.socket, service without -api): name it.
+Service=conductor-provisioner.service
 
 [Install]
 WantedBy=sockets.target
