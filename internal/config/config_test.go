@@ -27,6 +27,13 @@ func TestDefaults(t *testing.T) {
 		c.API.AllowedUsers[0] != "conductor" || c.Domain.SimpleBindFallback {
 		t.Fatalf("%+v", c)
 	}
+	if c.Limits.CreatesPerHour != 200 || c.Limits.UpdatesPerHour != 200 || c.Limits.MovesPerHour != 200 || c.Limits.DisablesPerHour != 200 {
+		t.Fatalf("plan ceilings %+v", c.Limits)
+	}
+	if got := c.ScopesOf("OU=Q,OU=People,OU=Lab,DC=example,DC=com"); len(got) != 1 || len(c.ScopesOf("ou=people, ou=lab,dc=example,dc=com")) != 1 ||
+		len(c.ScopesOf("OU=Lab,DC=example,DC=com")) != 0 || len(c.ScopesOf("not a dn")) != 0 {
+		t.Fatal("ScopesOf")
+	}
 	if c.Scope.OUs[0] != "ou=people,ou=lab,dc=example,dc=com" {
 		t.Fatalf("not normalized: %q", c.Scope.OUs[0])
 	}
@@ -68,6 +75,10 @@ func TestRejects(t *testing.T) {
 		"cache range":          minimal + "\n[privileged]\nindex_cache_seconds = 301\n",
 		"bad extra sid":        minimal + "\n[privileged]\nextra_group_sids = [\"admins\"]\n",
 		"negative limit":       minimal + "\n[limits]\nenables_per_hour = -1\n",
+		"negative creates":     minimal + "\n[limits]\ncreates_per_hour = -1\n",
+		"huge updates":         minimal + "\n[limits]\nupdates_per_hour = 100001\n",
+		"negative moves":       minimal + "\n[limits]\nmoves_per_hour = -5\n",
+		"negative disables":    minimal + "\n[limits]\ndisables_per_hour = -1\n",
 		"relative db":          minimal + "\n[state]\ndatabase = \"p.db\"\n",
 		"relative socket":      minimal + "\n[api]\nsocket = \"api.sock\"\n",
 		"no allowed users":     minimal + "\n[api]\nallowed_users = []\n",

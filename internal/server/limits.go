@@ -10,6 +10,10 @@ const (
 	limitTokenIssues  = "token_issues"
 	limitPasswordSets = "password_sets"
 	limitEnables      = "enables"
+	limitCreates      = "creates"
+	limitUpdates      = "updates"
+	limitMoves        = "moves"
+	limitDisables     = "disables"
 )
 
 // limiter enforces hourly ceilings with a sliding one-hour window per

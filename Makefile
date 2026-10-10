@@ -45,10 +45,12 @@ staticcheck: tools
 vulncheck: tools
 	$(GOVULNCHECK) ./...
 
-# Short fuzz run of the protocol decoder (requests and responses).
+# Short fuzz run of the protocol decoder (requests, responses and the
+# parameters of the plan operations).
 fuzz:
 	go test -run XXX -fuzz FuzzDecodeRequest -fuzztime $(FUZZTIME) ./provapi/
 	go test -run XXX -fuzz FuzzReadMessage -fuzztime $(FUZZTIME) ./provapi/
+	go test -run XXX -fuzz FuzzPlanParams -fuzztime $(FUZZTIME) ./provapi/
 
 # Integration test against the Samba lab (environment in
 # internal/labtest/lab_test.go).

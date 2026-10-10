@@ -63,6 +63,11 @@ const (
 	OpInviteComplete Op = "invite.complete"
 	OpTokenRevoke    Op = "token.revoke"
 	OpTokenList      Op = "token.list"
+	// The Google-first plan operations (plan.go).
+	OpUserCreate     Op = "user.create"
+	OpUserUpdate     Op = "user.update"
+	OpUserSetEnabled Op = "user.set_enabled"
+	OpUserMove       Op = "user.move"
 )
 
 // Mutating reports whether the operation changes state (tokens or the
@@ -70,7 +75,8 @@ const (
 // when they are refused.
 func (o Op) Mutating() bool {
 	switch o {
-	case OpTokenIssue, OpPasswordSet, OpInviteComplete, OpTokenRevoke:
+	case OpTokenIssue, OpPasswordSet, OpInviteComplete, OpTokenRevoke,
+		OpUserCreate, OpUserUpdate, OpUserSetEnabled, OpUserMove:
 		return true
 	}
 	return false
@@ -183,6 +189,20 @@ const (
 	// CodePasswordPolicy: the directory refused the new password;
 	// Error.Reason says why.
 	CodePasswordPolicy ErrorCode = "password_policy"
+	// CodeExists: user.create or user.move would collide with an object
+	// that already exists (the DN, or a sAMAccountName, userPrincipalName,
+	// address or marker used anywhere in the domain); Error.Kinds lists
+	// what collided (dn, sam, upn, mail, marker).
+	CodeExists ErrorCode = "exists"
+	// CodeConflict: user.update found a current value other than the
+	// change's before value; Error.Kinds lists the attributes.
+	CodeConflict ErrorCode = "conflict"
+	// CodeMarkerMismatch: the account does not carry the marker the
+	// request names (another Google ID, or none).
+	CodeMarkerMismatch ErrorCode = "marker_mismatch"
+	// CodeSchemaMissing: the directory schema has no MarkerAttribute, so
+	// no account can be created for Google-first.
+	CodeSchemaMissing ErrorCode = "schema_missing"
 	// CodeDirectory: the directory could not be read or refused a write.
 	CodeDirectory ErrorCode = "directory"
 	// CodeInternal: a failure inside the service.
@@ -207,7 +227,8 @@ type Error struct {
 	Message string    `json:"message"`
 	// Reason refines CodePasswordPolicy.
 	Reason string `json:"reason,omitempty"`
-	// Kinds lists the privilege reason kinds with CodePrivileged.
+	// Kinds lists the privilege reason kinds with CodePrivileged, what
+	// collided with CodeExists, and the attributes with CodeConflict.
 	Kinds []string `json:"kinds,omitempty"`
 }
 
@@ -238,6 +259,10 @@ var Allowlist = map[Op]func() Params{
 	OpInviteComplete: func() Params { return &InviteCompleteParams{} },
 	OpTokenRevoke:    func() Params { return &TokenRevokeParams{} },
 	OpTokenList:      func() Params { return &TokenListParams{} },
+	OpUserCreate:     func() Params { return &UserCreateParams{} },
+	OpUserUpdate:     func() Params { return &UserUpdateParams{} },
+	OpUserSetEnabled: func() Params { return &UserSetEnabledParams{} },
+	OpUserMove:       func() Params { return &UserMoveParams{} },
 }
 
 func invalid(format string, a ...any) *Error {
