@@ -55,6 +55,17 @@ every operation of that kind.
 | `token_issues_per_hour` | `200` | 0 to 100000 |
 | `password_sets_per_hour` | `200` | 0 to 100000 |
 | `enables_per_hour` | `200` | 0 to 100000 |
+| `creates_per_hour` | `200` | 0 to 100000 |
+| `updates_per_hour` | `200` | 0 to 100000 |
+| `moves_per_hour` | `200` | 0 to 100000 |
+| `disables_per_hour` | `200` | 0 to 100000 |
+
+`enables_per_hour` counts `invite.complete` and `user.set_enabled` with
+`enabled = true`; `disables_per_hour` counts `user.set_enabled` with
+`enabled = false`; `creates_per_hour`, `updates_per_hour` and
+`moves_per_hour` count `user.create`, `user.update` and `user.move`. An
+operation that has nothing to write (already disabled, already in the OU)
+does not count.
 
 ## [state]
 

@@ -18,12 +18,16 @@ family's [architecture.md](https://github.com/openbasalt/samba-conductor-docs/bl
   invitation was issued).
 - Answers what conductor needs to show on a user page: in the delegated
   scope or not, privileged or not and why, pending tokens.
+- Applies the Google-first plan for conductor: creates an account
+  (disabled, random password, Google-first marker), changes its
+  Google-owned attributes, enables or disables it and moves it within its
+  scope OU, only for accounts carrying the marker the request names.
 
 ## Safety rules
 
 | Rule | How |
 |---|---|
-| Least privilege | one account, member of Domain Users only, with Reset Password and three attributes on user objects below the managed OUs ([docs/delegation.md](docs/delegation.md)); no delete, no security descriptor writes |
+| Least privilege | one account, member of Domain Users only, with Reset Password and three attributes on user objects below the managed OUs, plus, for Google-first, create, move and the Google-owned attributes of user objects there ([docs/delegation.md](docs/delegation.md)); no security descriptor writes, no group membership writes |
 | Scope | every target is read fresh by SID and must be strictly below a configured OU (parsed DN comparison, no referrals); built-in containers cannot be configured |
 | Privileged accounts are untouchable | the `ad` module's privilege index (administrative groups, nested; `adminCount`; rights or ownership on the domain head, OUs, AdminSDHolder, GPOs) plus the account's own groups read at operation time |
 | Ceilings | hourly ceilings per operation kind and a daily limit per account, from the service's own root-owned configuration |
@@ -37,7 +41,7 @@ family's [architecture.md](https://github.com/openbasalt/samba-conductor-docs/bl
 conductor-provisioner serve
 conductor-provisioner status
 conductor-provisioner audit verify|export
-conductor-provisioner delegation preview --ou DN [--account-sid SID]
+conductor-provisioner delegation preview --ou DN [--account-sid SID] [--google-first]
 conductor-provisioner healthcheck
 conductor-provisioner version
 ```

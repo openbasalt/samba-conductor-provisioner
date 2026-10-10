@@ -42,7 +42,7 @@ only by the user objects below the OU (`CIIO`, with the `user` class
 | Write `pwdLastSet` | `WP;bf967a0a-0de6-11d0-a285-00aa003049e2` | the password reset writes it |
 | Write `userAccountControl` | `WP;bf967a68-0de6-11d0-a285-00aa003049e2` | enabling an invited account |
 
-Nothing else is needed. `conductor-provisioner delegation preview` prints
+Nothing else is needed for invitations and resets. `conductor-provisioner delegation preview` prints
 the exact commands for an OU and the configured account, with the
 account's SID resolved:
 
@@ -67,6 +67,49 @@ samba-tool dsacl set --objectdn='OU=People,OU=Lab,DC=example,DC=com' \
   --sddl='(OA;CIIO;WP;bf967a68-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)'
 ```
 
+## Rights of the Google-first plan operations
+
+The plan operations (`user.create`, `user.update`, `user.set_enabled`,
+`user.move`) need more than invitations and resets. Delegate them only on
+the managed OU of a Google-first scope (its quarantine OU is below it).
+`--google-first` prints them after the four entries above:
+
+```sh
+conductor-provisioner delegation preview --google-first \
+  --ou 'OU=People,OU=Lab,DC=example,DC=com'
+```
+
+| Right | Entry | Used for |
+|---|---|---|
+| Create user objects, on the OU and inherited by the OUs below it (`CI`) | `(OA;CI;CC;bf967aba-0de6-11d0-a285-00aa003049e2;;<account SID>)` | `user.create`; the target OU of a move |
+| Delete user objects (`CIIO`, user objects only) | `(OA;CIIO;SD;;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | a move: AD requires delete on the moved object |
+| Write `cn` | `(OA;CIIO;WP;bf96793f-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | a move writes the RDN |
+| Write `name` | `(OA;CIIO;WP;bf967a0e-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | a move writes the RDN |
+| Write `givenName` | `(OA;CIIO;WP;f0f8ff8e-1191-11d0-a060-00aa006c33ed;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `sn` | `(OA;CIIO;WP;bf967a41-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `displayName` | `(OA;CIIO;WP;bf967953-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `mail` | `(OA;CIIO;WP;bf967961-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `proxyAddresses` | `(OA;CIIO;WP;bf967a06-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `title` | `(OA;CIIO;WP;bf967a55-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `department` | `(OA;CIIO;WP;bf96794f-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `employeeID` | `(OA;CIIO;WP;bf967962-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `telephoneNumber` | `(OA;CIIO;WP;bf967a49-0de6-11d0-a285-00aa003049e2;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `mobile` | `(OA;CIIO;WP;f0f8ffa3-1191-11d0-a060-00aa006c33ed;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | `user.update` |
+| Write `msDS-cloudExtensionAttribute1` | `(OA;CIIO;WP;9709eaaf-49da-4db2-908a-0446e5eab844;bf967aba-0de6-11d0-a285-00aa003049e2;<account SID>)` | the Google-first marker |
+
+`userAccountControl` and `pwdLastSet` (enable, disable, a new account's
+state) are already among the four entries above. Each line is applied with
+`samba-tool dsacl set --objectdn=<OU> --sddl=<entry>`, as above.
+
+What these add to what a stolen password can do: create user objects in
+the managed OU, delete and move user objects below it, and write the
+listed attributes of those objects. The service itself never deletes and
+checks every target (scope, privileged accounts, marker); the rights are
+the ones a move and a create need in AD. The account owns the user
+objects it creates, and an owner can always read and change their
+security descriptor; keep the provisioner's credential as protected as a
+helpdesk administrator's.
+
 Then add the OU to `[scope] ous` in `provisioner.toml` and restart the
 service. An OU in the scope without the delegation makes the writes fail
 with `directory` (access denied); a delegation without the scope entry is
@@ -78,9 +121,13 @@ never used.
   Operators or any other group but Domain Users;
 - rights on the domain head, on `CN=Users`, on `CN=System` or on the
   `Domain Controllers` OU;
-- delete or delete-tree rights, create-child rights, `WRITE_DAC` or
-  `WRITE_OWNER` anywhere, or write access to `adminCount`, `member` or
+- delete-tree rights, delete-child rights on any container, `WRITE_DAC`
+  or `WRITE_OWNER` anywhere, or write access to `adminCount`, `member` or
   `nTSecurityDescriptor`;
+- without Google-first: delete or create-child rights at all; with
+  Google-first: delete and create-child for user objects only, on the
+  Google-first managed OUs only, and no create-child for groups, computers
+  or OUs;
 - an interactive use: the password is only in the credential file.
 
 The service checks every target itself (scope, privileged accounts), so a
@@ -95,10 +142,11 @@ samba-tool group listmembers 'Domain Admins' | grep -i svc-conductor-prov   # no
 samba-tool user show svc-conductor-prov --attributes=memberOf,userAccountControl
 ```
 
-The first command lists exactly the four entries above (in the descriptor
-of the OU they appear as `OA;CIIO;...` entries). `memberOf` is empty
-(Domain Users is the primary group) and `userAccountControl` includes
-0x100000.
+The first command lists exactly the four entries above, or the nineteen
+entries with Google-first (in the descriptor of the OU they appear as
+`OA;CIIO;...` entries and, for the create right, `OA;CI;CC;...`).
+`memberOf` is empty (Domain Users is the primary group) and
+`userAccountControl` includes 0x100000.
 
 ## Rotate the password
 
