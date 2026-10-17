@@ -1,0 +1,19 @@
+# The API socket of conductor-provisioner. systemd creates it owned by the
+# conductor-provisioner user and the conductor group, mode 0660;
+# conductor-provisioner.service additionally admits only the conductor
+# user (SO_PEERCRED).
+[Unit]
+Description=conductor-provisioner API socket
+
+[Socket]
+ListenStream=/run/conductor-provisioner/api.sock
+SocketUser=conductor-provisioner
+SocketGroup=conductor
+SocketMode=0660
+DirectoryMode=0755
+Accept=no
+# The unit names differ (api.socket, service without -api): name it.
+Service=conductor-provisioner.service
+
+[Install]
+WantedBy=sockets.target
