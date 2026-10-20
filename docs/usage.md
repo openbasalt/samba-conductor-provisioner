@@ -19,7 +19,8 @@ Exit codes: 0 success, 1 error, 2 usage, 3 the audit chain is broken.
 
 `status` and `audit` read the state database and the credentials, so run
 them as root (or as the service user with access to the credential
-directory).
+directory). `healthcheck` reads `provisioner.toml`, which is 0640
+root:conductor-provisioner, so run it as root or as the service user too.
 
 ## What conductor shows
 
