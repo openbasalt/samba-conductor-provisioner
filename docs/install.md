@@ -101,10 +101,15 @@ or a reset is possible and why not.
 ## Checks
 
 ```sh
-conductor-provisioner healthcheck
+sudo conductor-provisioner healthcheck  # reads /etc/conductor-provisioner/provisioner.toml (0640)
 sudo conductor-provisioner status       # reads the credentials from /etc/conductor-provisioner/credentials
 sudo conductor-provisioner audit verify
 ```
+
+All three read files in `/etc/conductor-provisioner` that other users
+cannot open, so run them with `sudo`. `healthcheck` also works as the
+service user (`sudo -u conductor-provisioner conductor-provisioner
+healthcheck`).
 
 ## Uninstall
 
