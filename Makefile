@@ -20,7 +20,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 FUZZTIME ?= 20s
 LAB_PKGS := $(wildcard ./internal/labtest)
 
-.PHONY: build test check fmt vet staticcheck vulncheck fuzz lab-test tools
+.PHONY: build test check fmt vet staticcheck vulncheck fuzz lab-test tools package lintian rpmlint
 
 build:
 	mkdir -p bin
@@ -71,3 +71,19 @@ $(GOVULNCHECK):
 	tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && \
 		GOBIN="$$tmp" go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) && \
 		mv "$$tmp/govulncheck" $@
+
+# Debian and RPM packages, the SELinux policy package and their SBOMs in
+# dist/ (amd64/x86_64 and arm64/aarch64 by default; version from the git tag,
+# VERSION= overrides; FORMATS=deb or rpm builds one format). Layout and
+# release process: https://github.com/openbasalt/samba-conductor-docs/blob/main/packaging.md.
+ARCHES ?= amd64 arm64
+FORMATS ?= deb rpm
+package:
+	case " $(FORMATS) " in *" rpm "*) packaging/selinux/build.sh ;; esac
+	FORMATS="$(FORMATS)" packaging/build.sh $(ARCHES)
+
+lintian:
+	packaging/lintian.sh dist/*.deb
+
+rpmlint:
+	packaging/rpmlint.sh dist/*.rpm

@@ -3,6 +3,39 @@
 conductor-provisioner runs on the host where conductor runs (usually a
 domain controller), as its own user, with systemd socket activation.
 
+## From the packages
+
+Each release ships a `.deb` and an `.rpm` for amd64/x86_64 and
+arm64/aarch64, and `conductor-provisioner-selinux` for the targeted SELinux
+policy (Fedora, Basalt OS), with SBOMs and signed checksums
+([verifying-releases.md](https://github.com/openbasalt/samba-conductor-docs/blob/main/verifying-releases.md)).
+
+```sh
+sudo apt install ./conductor-provisioner_<version>-1_amd64.deb
+sudo dnf install conductor-provisioner        # Basalt OS: from basalt-tools
+sudo dnf install ./conductor-provisioner-<version>-1.x86_64.rpm ./conductor-provisioner-selinux-<version>-1.noarch.rpm
+```
+
+The package creates the `conductor-provisioner` user (sysusers.d),
+`/etc/conductor-provisioner` (root:conductor-provisioner 0750) with
+`credentials/` (root 0700), `provisioner.toml` (0640, kept on upgrade),
+`/var/lib/conductor-provisioner` and the units in `/usr/lib/systemd/system`.
+Nothing is enabled or started. Install conductor first (the socket's group
+is `conductor`), then continue with steps 2, 3 (without the `install`
+commands for the directory and the file) and 4 (only `systemctl enable
+--now`).
+
+Where the targeted policy is installed, the service runs in
+`conductor_provisioner_t`: its configuration, its state, the API socket in
+`/run/conductor-provisioner` (which `conductor_t` may use), LDAP(S) and
+Kerberos to the domain controllers. Commands run by hand (`status`,
+`audit verify`) are not confined.
+
+Upgrades restart the service when it is running. `apt purge` deletes
+`/etc/conductor-provisioner` (including the credentials) and
+`/var/lib/conductor-provisioner`; `dnf remove` keeps the credentials, the
+state and the user. Neither touches the delegation or the account in AD.
+
 ## 1. Binary and user
 
 ```sh

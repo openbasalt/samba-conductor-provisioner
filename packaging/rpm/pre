@@ -1,0 +1,13 @@
+#!/bin/sh
+# %pre of conductor-provisioner (RPM): the system user exists before the
+# payload is unpacked, because /etc/conductor-provisioner and
+# /var/lib/conductor-provisioner are owned by it. The entry is the one in
+# /usr/lib/sysusers.d/conductor-provisioner.conf (build.sh checks that they
+# match); systemd-sysusers reads it from stdin, as Fedora's
+# %sysusers_create_compat does.
+if [ -x /usr/bin/systemd-sysusers ]; then
+	/usr/bin/systemd-sysusers --replace=/usr/lib/sysusers.d/conductor-provisioner.conf - <<'SYSUSERS' || :
+u conductor-provisioner - "Samba Conductor provisioner" /var/lib/conductor-provisioner /usr/sbin/nologin
+SYSUSERS
+fi
+exit 0

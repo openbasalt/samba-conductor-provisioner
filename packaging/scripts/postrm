@@ -1,0 +1,40 @@
+#!/bin/sh
+# postrm of conductor-provisioner. Purge deletes the configuration, the
+# credentials (the delegated account's password and the state key: without
+# it the audit log can no longer be verified), the state (tokens, audit log)
+# and the bookkeeping. The delegation in AD and the account itself are left
+# to the administrator (docs/install.md, Uninstall).
+# The system user is kept: files it owns may exist elsewhere (backups,
+# copies), and a reused UID would own them.
+set -e
+
+ENABLE="conductor-provisioner-api.socket conductor-provisioner.service"
+
+case "$1" in
+remove)
+	if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+	fi
+	if command -v deb-systemd-helper >/dev/null 2>&1; then
+		deb-systemd-helper mask $ENABLE >/dev/null || true
+	fi
+	;;
+purge)
+	if command -v deb-systemd-helper >/dev/null 2>&1; then
+		deb-systemd-helper purge $ENABLE >/dev/null || true
+		deb-systemd-helper unmask $ENABLE >/dev/null || true
+	fi
+	for path in /etc/conductor-provisioner/provisioner.toml /etc/conductor-provisioner; do
+		if dpkg-statoverride --list "$path" >/dev/null 2>&1; then
+			dpkg-statoverride --remove "$path"
+		fi
+	done
+	rm -rf /etc/systemd/system/conductor-provisioner-api.socket.d /etc/systemd/system/conductor-provisioner.service.d
+	rm -rf /etc/conductor-provisioner /var/lib/conductor-provisioner
+	if [ -z "${DPKG_ROOT:-}" ] && [ -d /run/systemd/system ]; then
+		systemctl --system daemon-reload >/dev/null || true
+	fi
+	;;
+esac
+
+exit 0

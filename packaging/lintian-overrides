@@ -1,0 +1,7 @@
+# The binary is a static Go program by design: built with CGO off from the
+# upstream Go toolchain, one artifact for every supported distribution and
+# release (no libc dependency to track). Built-Using would have to name a
+# Debian golang source package, which is not what builds it.
+conductor-provisioner: statically-linked-binary [usr/bin/*]
+# Not uploaded to the Debian archive: there is no Debian bug to close.
+conductor-provisioner: initial-upload-closes-no-bugs [usr/share/doc/conductor-provisioner/changelog.Debian.gz:*]

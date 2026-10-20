@@ -1,0 +1,66 @@
+.TH CONDUCTOR-PROVISIONER 8 "2026-10-20" "Samba Conductor" "System Administration"
+.SH NAME
+conductor-provisioner \- delegated Active Directory writes for Samba Conductor
+.SH SYNOPSIS
+.B conductor-provisioner
+.I command
+.RI [ flags ]
+.SH DESCRIPTION
+.B conductor-provisioner
+holds a least-privilege account delegated on the managed OUs of a Samba
+Active Directory domain and executes typed operations for conductor over a
+local socket: one-time invitation and password reset tokens, password set,
+lockout clear, account enable, and the Google-first plan operations
+(create, update, move, enable and disable of marked accounts). Every
+target must be below a configured OU and not privileged; hourly ceilings
+and a daily limit per account apply; every change and refusal is recorded
+in a hash-chained audit log. Each command accepts
+.B \-\-config
+.I FILE
+(default
+.IR /etc/conductor-provisioner/provisioner.toml ).
+.SH COMMANDS
+.TP
+.B serve
+Run the API for conductor (started by
+.BR conductor-provisioner-api.socket ).
+.TP
+.B status
+Configuration summary, tokens by state, audit rows and, with the state
+key, whether the audit chain is intact. Run as root.
+.TP
+.B audit verify | audit export
+Check the audit hash chain with the state key, or write the audit log as
+JSON lines. Run as root.
+.TP
+.B delegation preview \-\-ou DN \fR[\fB\-\-account-sid\fR \fISID\fR] [\fB\-\-google-first\fR]
+Print the
+.B samba-tool dsacl set
+commands that delegate the OU to the configured account.
+.TP
+.B healthcheck
+Exit 0 when the configuration loads and the API socket exists.
+.TP
+.B version
+Print the version.
+.SH EXIT STATUS
+0 success, 1 error, 2 usage, 3 the audit chain is broken.
+.SH FILES
+.TP
+.I /etc/conductor-provisioner/provisioner.toml
+Configuration.
+.TP
+.I /etc/conductor-provisioner/credentials/
+.B account-password
+and
+.BR state-key ,
+loaded by systemd.
+.TP
+.I /var/lib/conductor-provisioner/
+State database (token hashes, audit log).
+.TP
+.I /run/conductor-provisioner/api.sock
+The API socket (group conductor).
+.SH SEE ALSO
+.BR conductor (8),
+.BR samba-tool (8)

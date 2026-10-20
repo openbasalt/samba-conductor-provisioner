@@ -1,0 +1,17 @@
+#!/bin/sh
+# %postun of conductor-provisioner (RPM), as Fedora's
+# %systemd_postun_with_restart: on upgrade the service, when it is running,
+# is restarted with the new binary at the end of the transaction (a stopped
+# service stays stopped; enabled units stay enabled). On removal rpm keeps
+# edited configuration as .rpmsave and leaves what the administrator
+# created (the credentials: account password and state key; the tokens and
+# the audit log in /var/lib/conductor-provisioner) and the system user.
+UNITS="conductor-provisioner.service"
+if [ "$1" -ge 1 ]; then
+	if [ -x /usr/lib/systemd/systemd-update-helper ]; then
+		/usr/lib/systemd/systemd-update-helper mark-restart-system-units $UNITS || :
+	else
+		systemctl try-restart $UNITS >/dev/null 2>&1 || :
+	fi
+fi
+exit 0

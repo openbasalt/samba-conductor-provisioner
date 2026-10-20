@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Merge the CycloneDX SBOMs of a package's binaries into one document.
+
+cyclonedx-gomod describes one Go application per document. A package that
+ships several binaries gets one SBOM: the union of their components (deduped
+by bom-ref) and dependency edges, with the package itself as the subject
+(a deb or rpm package URL). A package without Go binaries (the SELinux
+policy package) gets a document with the package alone. Timestamp and
+serial number are derived from the inputs, so the result is reproducible.
+Standard library only.
+"""
+import argparse
+import json
+import urllib.parse
+import uuid
+
+# Modules of the Samba Conductor family.
+FAMILY = "github.com/openbasalt/samba-conductor"
+
+# Licenses cyclonedx-gomod does not detect (no license evidence in its
+# output), read by hand from the module; packaging/third-party-licenses.py
+# ships their texts.
+KNOWN_LICENSES = {
+    "std": "BSD-3-Clause",
+    "github.com/tinylib/msgp": "MIT",
+}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--type", choices=("deb", "rpm"), default="deb",
+                    help="package format (package URL type)")
+    ap.add_argument("--name", required=True)
+    ap.add_argument("--version", required=True)
+    ap.add_argument("--arch", required=True)
+    ap.add_argument("--timestamp", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--local-family", action="store_true",
+                    help="the family modules came from a Go workspace (lab build)")
+    ap.add_argument("--license", default="Apache-2.0",
+                    help="SPDX expression of the package itself")
+    ap.add_argument("--tool", action="append", default=[],
+                    help="name@version of a build tool to record (no Go inputs)")
+    ap.add_argument("inputs", nargs="*")
+    args = ap.parse_args()
+
+    docs = []
+    for path in args.inputs:
+        with open(path, encoding="utf-8") as f:
+            docs.append(json.load(f))
+
+    # The RPM snapshot separator "^" is not allowed raw in a package URL.
+    version = urllib.parse.quote(args.version, safe="+~.-_")
+    purl = f"pkg:{args.type}/openbasalt/{args.name}@{version}?arch={args.arch}"
+    if " " in args.license:
+        lic = [{"expression": args.license}]
+    else:
+        lic = [{"license": {"id": args.license}}]
+    subject = {
+        "type": "application",
+        "bom-ref": purl,
+        "name": args.name,
+        "version": args.version,
+        "purl": purl,
+        "licenses": lic,
+    }
+
+    components = {}
+    deps = {}
+    binaries = []
+    for doc in docs:
+        app = doc.get("metadata", {}).get("component")
+        if app:
+            # Each binary becomes a component of the package.
+            components.setdefault(app["bom-ref"], app)
+            binaries.append(app["bom-ref"])
+        for c in doc.get("components", []):
+            if args.local_family and c.get("name", "").startswith(FAMILY):
+                # A sibling resolved through a Go workspace: its hash is
+                # computed over a working directory (build output included),
+                # so it is not reproducible. Release builds use the pinned
+                # versions, whose hashes come from the module cache.
+                c.pop("hashes", None)
+            detected = c.get("licenses") or c.get("evidence", {}).get("licenses")
+            if not detected and c.get("name") in KNOWN_LICENSES:
+                # Concluded by reading the module's license, not detected.
+                c["licenses"] = [{"license": {"id": KNOWN_LICENSES[c["name"]]}}]
+            components.setdefault(c["bom-ref"], c)
+        for d in doc.get("dependencies", []):
+            deps.setdefault(d["ref"], set()).update(d.get("dependsOn", []))
+    deps[purl] = set(binaries)
+
+    tools = docs[0].get("metadata", {}).get("tools") if docs else None
+    if args.tool:
+        tools = {"components": [
+            {"type": "application", "name": t.rsplit("@", 1)[0], "version": t.rsplit("@", 1)[1]}
+            for t in args.tool]}
+    out = {
+        "bomFormat": "CycloneDX",
+        "specVersion": docs[0].get("specVersion", "1.6") if docs else "1.6",
+        "serialNumber": "urn:uuid:" + str(uuid.uuid5(uuid.NAMESPACE_URL, purl)),
+        "version": 1,
+        "metadata": {"timestamp": args.timestamp, "component": subject},
+        "components": [components[k] for k in sorted(components)],
+        "dependencies": [{"ref": k, "dependsOn": sorted(v)} for k, v in sorted(deps.items())],
+    }
+    if tools:
+        out["metadata"]["tools"] = tools
+    with open(args.out, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
+if __name__ == "__main__":
+    main()
