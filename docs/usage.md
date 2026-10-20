@@ -11,7 +11,7 @@ Every command takes `--config FILE` (default
 | `conductor-provisioner status` | configuration summary (account, scope OUs, ceilings, token lifetimes), tokens by state, audit rows and, with the state key, whether the chain is intact |
 | `conductor-provisioner audit verify` | checks the audit hash chain with the state key |
 | `conductor-provisioner audit export` | writes the audit log as JSON lines, oldest first |
-| `conductor-provisioner delegation preview --ou DN [--account-sid SID]` | prints the `samba-tool dsacl set` commands that delegate the OU to the configured account, and the command to verify them ([delegation.md](delegation.md)) |
+| `conductor-provisioner delegation preview --ou DN [--account-sid SID] [--google-first]` | prints the `samba-tool dsacl set` commands that delegate the OU to the configured account, and the command to verify them; `--google-first` adds the rights of the plan operations ([delegation.md](delegation.md)) |
 | `conductor-provisioner healthcheck` | exits 0 when the configuration loads and the API socket exists |
 | `conductor-provisioner version` | prints the version |
 
@@ -37,7 +37,12 @@ provisioner enabled in conductor:
   consumes it), set the password (`password.set`) and, for an invitation,
   enable the account (`invite.complete`);
 - the public reset form resolves the account by name or address
-  (`user.find`) in the background and always answers the same way.
+  (`user.find`) in the background and always answers the same way;
+- applying a Google-first plan runs its operations in order through
+  `user.update`, `user.set_enabled`, `user.create` and `user.move` (a
+  disable is `user.set_enabled` then `user.move` to the quarantine OU, a
+  re-enable the reverse), then issues an invitation (`token.issue`) for
+  each created account.
 
 ## Reading refusals
 
@@ -49,6 +54,10 @@ provisioner enabled in conductor:
 | `stale` | the account's password, identity or state changed since the token was issued | issue a new token |
 | `expired`, `used`, `revoked` | the token's state | issue a new token |
 | `password_policy` | the domain refused the password (`reason` says why) | choose another password |
+| `exists` | `user.create` or `user.move`: the DN, or a logon name, UPN, address or marker in the domain, is taken (`kinds` says which) | resolve the collision in AD, then plan again |
+| `conflict` | `user.update`: an attribute no longer has the value the plan read (`kinds` lists them) | plan again |
+| `marker_mismatch` | the account does not carry the Google-first marker of the request | plan again; never change a marker by hand |
+| `schema_missing` | the schema has no `msDS-cloudExtensionAttribute1` | Google-first accounts cannot be created in this domain |
 | `directory` | the directory could not be read or refused a write | check `journalctl -u conductor-provisioner` and the delegation |
 
 Every refusal is in the audit log with its code and details

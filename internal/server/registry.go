@@ -39,4 +39,8 @@ var registry = map[provapi.Op]handler{
 	provapi.OpPasswordSet:    {mutating: true, run: typed(opPasswordSet)},
 	provapi.OpInviteComplete: {mutating: true, run: typed(opInviteComplete)},
 	provapi.OpTokenRevoke:    {mutating: true, run: typed(opTokenRevoke)},
+	provapi.OpUserCreate:     {mutating: true, run: typed(opUserCreate)},
+	provapi.OpUserUpdate:     {mutating: true, run: typed(opUserUpdate)},
+	provapi.OpUserSetEnabled: {mutating: true, run: typed(opUserSetEnabled)},
+	provapi.OpUserMove:       {mutating: true, run: typed(opUserMove)},
 }

@@ -84,7 +84,13 @@ var admin = provapi.Actor{User: "helpdesk", SID: "S-1-5-21-1-2-3-1500", Session:
 
 func newEnv(t *testing.T, extra string) *env {
 	t.Helper()
-	cfg, err := config.Parse(testConf + extra)
+	return newEnvText(t, testConf+extra)
+}
+
+// newEnvText builds the environment from a whole configuration.
+func newEnvText(t *testing.T, text string) *env {
+	t.Helper()
+	cfg, err := config.Parse(text)
 	if err != nil {
 		t.Fatal(err)
 	}

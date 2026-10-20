@@ -70,6 +70,12 @@ type Limits struct {
 	TokenIssuesPerHour  int `toml:"token_issues_per_hour"`
 	PasswordSetsPerHour int `toml:"password_sets_per_hour"`
 	EnablesPerHour      int `toml:"enables_per_hour"`
+	// The plan operations: user.create, user.update, user.move, and
+	// user.set_enabled with enabled = false.
+	CreatesPerHour  int `toml:"creates_per_hour"`
+	UpdatesPerHour  int `toml:"updates_per_hour"`
+	MovesPerHour    int `toml:"moves_per_hour"`
+	DisablesPerHour int `toml:"disables_per_hour"`
 }
 
 // State is the [state] section.
@@ -109,9 +115,10 @@ func Defaults() Config {
 	return Config{
 		Privileged: Privileged{IndexCacheSeconds: 60},
 		Tokens:     Tokens{InviteHours: 72, ResetMinutes: 30, CompleteMinutes: 30, PerUserPerDay: 3},
-		Limits:     Limits{TokenIssuesPerHour: 200, PasswordSetsPerHour: 200, EnablesPerHour: 200},
-		State:      State{Database: "/var/lib/conductor-provisioner/provisioner.db"},
-		API:        API{Socket: "/run/conductor-provisioner/api.sock", AllowedUsers: []string{"conductor"}},
+		Limits: Limits{TokenIssuesPerHour: 200, PasswordSetsPerHour: 200, EnablesPerHour: 200,
+			CreatesPerHour: 200, UpdatesPerHour: 200, MovesPerHour: 200, DisablesPerHour: 200},
+		State: State{Database: "/var/lib/conductor-provisioner/provisioner.db"},
+		API:   API{Socket: "/run/conductor-provisioner/api.sock", AllowedUsers: []string{"conductor"}},
 	}
 }
 
@@ -214,6 +221,10 @@ func (c *Config) Validate() error {
 	add(rangeErr("limits.token_issues_per_hour", c.Limits.TokenIssuesPerHour, 0, 100000))
 	add(rangeErr("limits.password_sets_per_hour", c.Limits.PasswordSetsPerHour, 0, 100000))
 	add(rangeErr("limits.enables_per_hour", c.Limits.EnablesPerHour, 0, 100000))
+	add(rangeErr("limits.creates_per_hour", c.Limits.CreatesPerHour, 0, 100000))
+	add(rangeErr("limits.updates_per_hour", c.Limits.UpdatesPerHour, 0, 100000))
+	add(rangeErr("limits.moves_per_hour", c.Limits.MovesPerHour, 0, 100000))
+	add(rangeErr("limits.disables_per_hour", c.Limits.DisablesPerHour, 0, 100000))
 	if !filepath.IsAbs(c.State.Database) {
 		add(errors.New("config: state.database must be an absolute path"))
 	}
@@ -296,6 +307,23 @@ func (c *Config) InScope(dn string) bool {
 		}
 	}
 	return false
+}
+
+// ScopesOf returns the indexes of the scope OUs that are dn itself or an
+// ancestor of it (parsed DNs, case-insensitive). Used for OUs: the parent
+// of a new account and both ends of a move.
+func (c *Config) ScopesOf(dn string) []int {
+	parsed, err := escape.ParseDN(dn)
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for i, s := range c.scopeDNs {
+		if s.EqualFold(parsed) || s.AncestorOfFold(parsed) {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // ExtraGroupSIDs returns the parsed privileged.extra_group_sids.

@@ -16,7 +16,9 @@
 //  4. hourly ceilings per operation kind from the service's own
 //     configuration;
 //  5. tokens are bound to the account's SID, objectGUID and pwdLastSet;
-//  6. password material is never logged, audited, stored or returned.
+//  6. password material is never logged, audited, stored or returned;
+//  7. the Google-first plan operations (plan.go) act only on an account
+//     carrying the marker the request names, and never change a marker.
 package server
 
 import (
@@ -83,6 +85,10 @@ func NewService(opt Options) (*Service, error) {
 			limitTokenIssues:  l.TokenIssuesPerHour,
 			limitPasswordSets: l.PasswordSetsPerHour,
 			limitEnables:      l.EnablesPerHour,
+			limitCreates:      l.CreatesPerHour,
+			limitUpdates:      l.UpdatesPerHour,
+			limitMoves:        l.MovesPerHour,
+			limitDisables:     l.DisablesPerHour,
 		})}, nil
 }
 

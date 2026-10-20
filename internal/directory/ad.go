@@ -17,6 +17,7 @@ import (
 	"github.com/openbasalt/samba-conductor-ad/sid"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/config"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/secret"
+	"github.com/openbasalt/samba-conductor-provisioner/provapi"
 )
 
 // Connection lifetimes: a Kerberos session is renewed before it is this
@@ -212,7 +213,9 @@ func (d *AD) Get(ctx context.Context, dn string) (Entry, error) {
 			return err
 		}
 		out = Entry{User: ad.UserFromEntry(e), Classes: e.GetAttributeValues("objectClass"),
-			AdminCount: strings.TrimSpace(e.GetAttributeValue("adminCount")) == "1"}
+			AdminCount: strings.TrimSpace(e.GetAttributeValue("adminCount")) == "1",
+			Marker:     e.GetAttributeValue(provapi.MarkerAttribute), ProxyAddresses: e.GetAttributeValues("proxyAddresses"),
+			EmployeeID: e.GetAttributeValue("employeeID")}
 		if out.DN == "" {
 			out.DN = e.DN
 		}
@@ -249,6 +252,119 @@ func (d *AD) BuildIndex(ctx context.Context, opt privilege.Options) (Index, erro
 // Apply implements Directory.
 func (d *AD) Apply(ctx context.Context, op *ad.Operation) error {
 	return d.do(ctx, func(c *ad.Conn) error { return c.Apply(ctx, op) })
+}
+
+// SchemaHasAttribute implements Directory: an attributeSchema object with
+// that lDAPDisplayName in the schema naming context.
+func (d *AD) SchemaHasAttribute(ctx context.Context, name string) (bool, error) {
+	var found bool
+	err := d.do(ctx, func(c *ad.Conn) error {
+		entries, err := c.SearchAll(ctx, ad.SearchRequest{BaseDN: "CN=Schema," + c.ConfigurationDN(), Scope: ad.ScopeOneLevel,
+			Filter:     escape.And(escape.Eq("objectClass", "attributeSchema"), escape.Eq("lDAPDisplayName", name)),
+			Attributes: []string{"1.1"}, Limit: 1})
+		if err != nil {
+			return err
+		}
+		found = len(entries) > 0
+		return nil
+	})
+	return found, err
+}
+
+// maxConflicts bounds a FindConflicts result: one match is enough to
+// refuse, a few name every kind that collided.
+const maxConflicts = 10
+
+// FindConflicts implements Directory over the whole domain, any object
+// class.
+func (d *AD) FindConflicts(ctx context.Context, q ConflictQuery) ([]Match, error) {
+	var parts []escape.Filter
+	if q.SAM != "" {
+		parts = append(parts, escape.Eq("sAMAccountName", q.SAM))
+	}
+	if q.UPN != "" {
+		parts = append(parts, escape.Eq("userPrincipalName", q.UPN))
+	}
+	if q.Mail != "" {
+		parts = append(parts, escape.Eq("mail", q.Mail), escape.Eq("userPrincipalName", q.Mail),
+			escape.Eq("proxyAddresses", "smtp:"+q.Mail), escape.Eq("proxyAddresses", "SMTP:"+q.Mail))
+	}
+	if q.Marker != "" {
+		parts = append(parts, escape.Eq(provapi.MarkerAttribute, q.Marker))
+	}
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	var out []Match
+	err := d.do(ctx, func(c *ad.Conn) error {
+		out = nil
+		entries, err := c.SearchAll(ctx, ad.SearchRequest{Filter: escape.Or(parts...), Limit: maxConflicts,
+			Attributes: []string{"objectSid", "sAMAccountName", "userPrincipalName", "mail", "proxyAddresses", provapi.MarkerAttribute}})
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			u := ad.UserFromEntry(e)
+			out = append(out, Match{DN: e.DN, SID: u.SID, Kinds: MatchKinds(q, u.SAMAccountName, u.UserPrincipalName, u.Mail,
+				e.GetAttributeValue(provapi.MarkerAttribute), e.GetAttributeValues("proxyAddresses"))})
+		}
+		return nil
+	})
+	return out, err
+}
+
+// MatchKinds says which values of q an object's attributes hold
+// (case-insensitive, as the directory compares them).
+func MatchKinds(q ConflictQuery, sam, upn, mail, marker string, proxies []string) []string {
+	var kinds []string
+	eq := func(a, b string) bool { return a != "" && strings.EqualFold(a, b) }
+	if eq(q.SAM, sam) {
+		kinds = append(kinds, "sam")
+	}
+	if eq(q.UPN, upn) {
+		kinds = append(kinds, "upn")
+	}
+	mailHit := eq(q.Mail, mail) || eq(q.Mail, upn)
+	for _, p := range proxies {
+		if len(p) > 5 && strings.EqualFold(p[:5], "smtp:") && eq(q.Mail, p[5:]) {
+			mailHit = true
+		}
+	}
+	if mailHit {
+		kinds = append(kinds, "mail")
+	}
+	if eq(q.Marker, marker) {
+		kinds = append(kinds, "marker")
+	}
+	return kinds
+}
+
+// CreateUser implements Directory: one add with the password, disabled,
+// pwdLastSet 0 and the marker.
+func (d *AD) CreateUser(ctx context.Context, u NewUser) error {
+	op, err := ad.CreateUser(ad.NewUser{ParentDN: u.ParentDN, CN: u.CN, SAMAccountName: u.SAM, UserPrincipalName: u.UPN,
+		Mail: u.Mail, GivenName: u.Attrs["givenName"], Surname: u.Attrs["sn"], DisplayName: u.Attrs["displayName"],
+		Title: u.Attrs["title"], Department: u.Attrs["department"], TelephoneNumber: u.Attrs["telephoneNumber"],
+		Mobile: u.Attrs["mobile"], EmployeeID: u.Attrs["employeeID"], Password: u.Password, Disabled: true,
+		MustChangePassword: true, ExtraAttributes: map[string][]string{provapi.MarkerAttribute: {u.Marker}}})
+	if err != nil {
+		return err
+	}
+	return d.Apply(ctx, op)
+}
+
+// ModifyUser implements Directory: one modify, conditional on the before
+// values.
+func (d *AD) ModifyUser(ctx context.Context, dn string, changes []AttrChange) error {
+	rs := make([]ad.AttrReplace, 0, len(changes))
+	for _, ch := range changes {
+		rs = append(rs, ad.AttrReplace{Name: ch.Name, Before: ch.Before, After: ch.After})
+	}
+	op, err := ad.ReplaceAttributes(dn, rs)
+	if err != nil {
+		return err
+	}
+	return d.Apply(ctx, op)
 }
 
 // AccountSID resolves the delegated account's own SID.

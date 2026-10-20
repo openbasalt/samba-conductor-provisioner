@@ -66,6 +66,13 @@ type Limits struct {
 	TokenIssues  LimitUse `json:"token_issues"`
 	PasswordSets LimitUse `json:"password_sets"`
 	Enables      LimitUse `json:"enables"`
+	// The ceilings of the plan operations: user.create, user.update,
+	// user.move, and user.set_enabled with enabled=false (an enable by
+	// user.set_enabled counts under Enables).
+	Creates  LimitUse `json:"creates"`
+	Updates  LimitUse `json:"updates"`
+	Moves    LimitUse `json:"moves"`
+	Disables LimitUse `json:"disables"`
 }
 
 // TokenCounts counts the stored tokens by state.
