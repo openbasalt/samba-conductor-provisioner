@@ -1,0 +1,41 @@
+conductor-provisioner-selinux: SELinux policy for conductor-provisioner
+=======================================================================
+
+The module "conductor_provisioner" (targeted policy, priority 200) confines
+/usr/bin/conductor-provisioner in conductor_provisioner_t when systemd
+starts it (conductor-provisioner.service, socket-activated by
+conductor-provisioner-api.socket). Commands an administrator runs by hand
+("sudo conductor-provisioner status", "audit verify") stay in the
+administrator's domain.
+
+File types:
+
+  conductor_provisioner_conf_t     /etc/conductor-provisioner (provisioner.toml,
+                                   domain CA)
+  conductor_provisioner_cred_t     /etc/conductor-provisioner/credentials (read
+                                   by systemd for the service; by the
+                                   administrator's manual commands)
+  conductor_provisioner_var_lib_t  /var/lib/conductor-provisioner (tokens,
+                                   audit log)
+  conductor_provisioner_var_run_t  /run/conductor-provisioner (api.sock)
+
+conductor-provisioner connects to the domain controllers (LDAP/LDAPS,
+Kerberos). conductor (conductor_t) may use the API socket.
+
+Troubleshooting:
+
+  ausearch -m AVC,USER_AVC -ts recent -c conductor-provi
+  semanage permissive -a conductor_provisioner_t     (and -d to revert)
+
+License
+-------
+
+The policy sources here (.te, .fc, .if, .cil) are Apache-2.0, like the
+rest of the repository. The compiled modules expand macros and interfaces
+of the SELinux reference policy shipped by selinux-policy-devel, which is
+GPL-2.0-or-later, so the binary package is licensed "Apache-2.0 AND
+GPL-2.0-or-later" and carries the reference policy's COPYING in
+/usr/share/licenses/<package>/THIRD-PARTY-LICENSES. Apache-2.0 alone is
+not possible for the compiled modules. The corresponding source is this
+repository at the release commit and the Fedora selinux-policy source
+package of the version the modules were compiled against.

@@ -1,0 +1,144 @@
+policy_module(conductor_provisioner, 1.0.0)
+
+# SELinux policy of conductor-provisioner (conductor_provisioner_t, the
+# unprivileged "conductor-provisioner" user): the socket-activated service
+# that holds the delegated AD account. Its configuration and state, LDAPS
+# and Kerberos to the domain controllers, and the API socket that only
+# conductor uses. A mandatory layer under the systemd sandbox of
+# deploy/systemd/conductor-provisioner*.
+
+########################################
+#
+# Declarations
+#
+
+type conductor_provisioner_t;
+type conductor_provisioner_exec_t;
+init_daemon_domain(conductor_provisioner_t, conductor_provisioner_exec_t)
+
+# /etc/conductor-provisioner: provisioner.toml and the domain CA.
+type conductor_provisioner_conf_t;
+files_config_file(conductor_provisioner_conf_t)
+
+# /etc/conductor-provisioner/credentials: the delegated account's password
+# and the state key. The service gets them from systemd (LoadCredential=);
+# manual commands by an administrator are not confined.
+type conductor_provisioner_cred_t;
+files_type(conductor_provisioner_cred_t)
+
+# /var/lib/conductor-provisioner: token hashes and the audit log.
+type conductor_provisioner_var_lib_t;
+files_type(conductor_provisioner_var_lib_t)
+
+# /run/conductor-provisioner: api.sock, created by systemd for
+# conductor-provisioner-api.socket.
+type conductor_provisioner_var_run_t;
+files_pid_file(conductor_provisioner_var_run_t)
+
+type conductor_provisioner_tmp_t;
+files_tmp_file(conductor_provisioner_tmp_t)
+
+########################################
+#
+# conductor-provisioner local policy
+#
+
+allow conductor_provisioner_t self:process { getsched setsched signal_perms };
+allow conductor_provisioner_t self:fifo_file rw_fifo_file_perms;
+allow conductor_provisioner_t self:unix_stream_socket { accept listen create_stream_socket_perms };
+allow conductor_provisioner_t self:unix_dgram_socket create_socket_perms;
+allow conductor_provisioner_t self:netlink_route_socket r_netlink_socket_perms;
+allow conductor_provisioner_t self:tcp_socket create_stream_socket_perms;
+allow conductor_provisioner_t self:udp_socket create_socket_perms;
+
+read_files_pattern(conductor_provisioner_t, conductor_provisioner_conf_t, conductor_provisioner_conf_t)
+list_dirs_pattern(conductor_provisioner_t, conductor_provisioner_conf_t, conductor_provisioner_conf_t)
+read_lnk_files_pattern(conductor_provisioner_t, conductor_provisioner_conf_t, conductor_provisioner_conf_t)
+
+manage_dirs_pattern(conductor_provisioner_t, conductor_provisioner_var_lib_t, conductor_provisioner_var_lib_t)
+manage_files_pattern(conductor_provisioner_t, conductor_provisioner_var_lib_t, conductor_provisioner_var_lib_t)
+files_search_var_lib(conductor_provisioner_t)
+
+# The activation socket (systemd creates it in /run/conductor-provisioner).
+list_dirs_pattern(conductor_provisioner_t, conductor_provisioner_var_run_t, conductor_provisioner_var_run_t)
+rw_sock_files_pattern(conductor_provisioner_t, conductor_provisioner_var_run_t, conductor_provisioner_var_run_t)
+files_search_pids(conductor_provisioner_t)
+
+manage_dirs_pattern(conductor_provisioner_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+manage_files_pattern(conductor_provisioner_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+files_tmp_filetrans(conductor_provisioner_t, conductor_provisioner_tmp_t, { file dir })
+
+kernel_read_system_state(conductor_provisioner_t)
+kernel_read_kernel_sysctls(conductor_provisioner_t)
+kernel_read_net_sysctls(conductor_provisioner_t)
+
+dev_read_sysfs(conductor_provisioner_t)
+dev_read_urand(conductor_provisioner_t)
+dev_read_rand(conductor_provisioner_t)
+
+fs_getattr_all_fs(conductor_provisioner_t)
+fs_search_cgroup_dirs(conductor_provisioner_t)
+fs_read_cgroup_files(conductor_provisioner_t)
+
+files_read_etc_files(conductor_provisioner_t)
+# The peer's user name for api.allowed_users (SO_PEERCRED gives the UID).
+auth_use_nsswitch(conductor_provisioner_t)
+miscfiles_read_localization(conductor_provisioner_t)
+kerberos_read_config(conductor_provisioner_t)
+sysnet_dns_name_resolve(conductor_provisioner_t)
+logging_send_syslog_msg(conductor_provisioner_t)
+
+# LDAP(S) and Kerberos to the domain controllers. Passwords are set over
+# LDAPS (unicodePwd), never through kpasswd.
+corenet_tcp_connect_ldap_port(conductor_provisioner_t)
+corenet_tcp_connect_kerberos_port(conductor_provisioner_t)
+
+########################################
+#
+# conductor uses the API (invitations, resets, Google-first plans).
+#
+
+optional_policy(`
+	gen_require(`
+		type conductor_t;
+	')
+
+	conductor_provisioner_api_stream_connect(conductor_t)
+')
+
+########################################
+#
+# systemd (init_t) reads the credentials for LoadCredential=; nothing else
+# in the policy may.
+#
+
+gen_require(`
+	type init_t;
+')
+list_dirs_pattern(init_t, conductor_provisioner_cred_t, conductor_provisioner_cred_t)
+read_files_pattern(init_t, conductor_provisioner_cred_t, conductor_provisioner_cred_t)
+
+# systemd removes the unit's private /tmp (PrivateTmp=) when the service
+# stops, with whatever the service left in it.
+list_dirs_pattern(init_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+delete_dirs_pattern(init_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+delete_files_pattern(init_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+delete_sock_files_pattern(init_t, conductor_provisioner_tmp_t, conductor_provisioner_tmp_t)
+
+########################################
+#
+# Started by systemd: the unit sets NoNewPrivileges=yes, and the service
+# reads its credentials from $CREDENTIALS_DIRECTORY
+# (/run/credentials/<unit>, which systemd labels init_var_run_t).
+#
+
+init_nnp_daemon_domain(conductor_provisioner_t)
+
+gen_require(`
+	type init_var_run_t;
+')
+allow conductor_provisioner_t init_var_run_t:dir search_dir_perms;
+allow conductor_provisioner_t init_var_run_t:file read_file_perms;
+
+# SQLite in WAL mode maps its shared-memory index (<db>-shm).
+allow conductor_provisioner_t conductor_provisioner_var_lib_t:file map;

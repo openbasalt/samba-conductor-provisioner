@@ -1,0 +1,29 @@
+conductor-provisioner for Debian and Ubuntu
+===========================================
+
+Installing the package creates the "conductor-provisioner" system user,
+/etc/conductor-provisioner (root:conductor-provisioner 0750) with
+credentials/ (root 0700), the conffile
+/etc/conductor-provisioner/provisioner.toml and
+/var/lib/conductor-provisioner. It does not enable or start anything.
+
+  1. Install conductor first: the API socket's group is "conductor".
+  2. Create the delegated account and delegate the managed OUs
+     ("conductor-provisioner delegation preview --ou DN" prints the
+     commands). Its password goes in credentials/account-password and a
+     state key in credentials/state-key (both root, 0600):
+       sudo sh -c 'umask 077; openssl rand -hex 32 > /etc/conductor-provisioner/credentials/state-key'
+     Keep a copy of the state key with your backups.
+  3. The domain CA in /etc/conductor-provisioner/domain-ca.pem; edit
+     provisioner.toml (realm, account, scope OUs, conductor's role group
+     SIDs).
+  4. Start it:
+       sudo systemctl enable --now conductor-provisioner-api.socket conductor-provisioner.service
+  5. Enable the provisioner section in conductor's configuration.
+
+Upgrades restart the service when it is running. "apt purge
+conductor-provisioner" deletes /etc/conductor-provisioner (including the
+account password and the state key) and /var/lib/conductor-provisioner
+(tokens, audit log); the delegation in AD and the account stay.
+
+Full guide: https://github.com/openbasalt/samba-conductor-provisioner/blob/main/docs/install.md

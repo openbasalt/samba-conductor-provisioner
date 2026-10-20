@@ -1,0 +1,11 @@
+# File contexts of the conductor_provisioner policy module
+# (conductor-provisioner-selinux).
+/usr/bin/conductor-provisioner			--	gen_context(system_u:object_r:conductor_provisioner_exec_t,s0)
+/usr/local/bin/conductor-provisioner		--	gen_context(system_u:object_r:conductor_provisioner_exec_t,s0)
+
+/etc/conductor-provisioner(/.*)?			gen_context(system_u:object_r:conductor_provisioner_conf_t,s0)
+/etc/conductor-provisioner/credentials(/.*)?	gen_context(system_u:object_r:conductor_provisioner_cred_t,s0)
+
+/var/lib/conductor-provisioner(/.*)?		gen_context(system_u:object_r:conductor_provisioner_var_lib_t,s0)
+
+/run/conductor-provisioner(/.*)?			gen_context(system_u:object_r:conductor_provisioner_var_run_t,s0)

@@ -1,0 +1,40 @@
+## <summary>Samba Conductor provisioner: delegated Active Directory writes for conductor.</summary>
+
+########################################
+## <summary>
+##	Execute conductor-provisioner in the conductor_provisioner domain.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed to transition.
+##	</summary>
+## </param>
+#
+interface(`conductor_provisioner_domtrans',`
+	gen_require(`
+		type conductor_provisioner_t, conductor_provisioner_exec_t;
+	')
+
+	corecmd_search_bin($1)
+	domtrans_pattern($1, conductor_provisioner_exec_t, conductor_provisioner_t)
+')
+
+########################################
+## <summary>
+##	Use the conductor-provisioner API socket
+##	(/run/conductor-provisioner/api.sock).
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`conductor_provisioner_api_stream_connect',`
+	gen_require(`
+		type conductor_provisioner_t, conductor_provisioner_var_run_t;
+	')
+
+	files_search_pids($1)
+	stream_connect_pattern($1, conductor_provisioner_var_run_t, conductor_provisioner_var_run_t, conductor_provisioner_t)
+')

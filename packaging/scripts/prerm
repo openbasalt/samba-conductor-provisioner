@@ -1,0 +1,13 @@
+#!/bin/sh
+# prerm of conductor-provisioner: stop its units when the package is removed
+# (not on upgrade: postinst restarts the running service with the new
+# binary).
+set -e
+
+UNITS="conductor-provisioner-api.socket conductor-provisioner.service"
+
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	deb-systemd-invoke stop $UNITS >/dev/null || true
+fi
+
+exit 0

@@ -46,7 +46,8 @@ conductor-provisioner healthcheck
 conductor-provisioner version
 ```
 
-Install: [docs/install.md](docs/install.md). Configuration:
+Install (packages for Debian, Ubuntu, Fedora and Basalt OS, or from
+source): [docs/install.md](docs/install.md). Configuration:
 [docs/config.md](docs/config.md). Usage: [docs/usage.md](docs/usage.md).
 
 ## Development
@@ -55,6 +56,8 @@ Install: [docs/install.md](docs/install.md). Configuration:
 make check      # gofmt, go vet, staticcheck, govulncheck, go test -race
 make fuzz       # short fuzz run of the protocol decoder
 make lab-test   # against the Samba lab (environment in internal/labtest)
+make package    # .deb, .rpm and the SELinux policy package in dist/
+make lintian rpmlint
 ```
 
 The `provapi` package is the protocol conductor imports (standard library
