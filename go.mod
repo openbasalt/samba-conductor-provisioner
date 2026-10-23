@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/go-ldap/ldap/v3 v3.4.14
+	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/openbasalt/samba-conductor-ad v0.0.0-20261010151852-5de1a78d1cfa
 	modernc.org/sqlite v1.60.1
 )
