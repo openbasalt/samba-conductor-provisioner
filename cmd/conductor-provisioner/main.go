@@ -25,7 +25,9 @@ import (
 	"time"
 
 	"github.com/openbasalt/samba-conductor-provisioner/internal/config"
+	"github.com/openbasalt/samba-conductor-provisioner/internal/directory"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/secret"
+	"github.com/openbasalt/samba-conductor-provisioner/internal/server"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/store"
 )
 
@@ -173,6 +175,7 @@ func status(cfgPath string, stdout, stderr io.Writer) int {
 		cfg.Limits.CreatesPerHour, cfg.Limits.UpdatesPerHour, cfg.Limits.MovesPerHour, cfg.Limits.DisablesPerHour)
 	fmt.Fprintf(stdout, "tokens       invite %d h, reset %d min, complete %d min, %d per account per day\n",
 		cfg.Tokens.InviteHours, cfg.Tokens.ResetMinutes, cfg.Tokens.CompleteMinutes, cfg.Tokens.PerUserPerDay)
+	code := scopeStatus(cfg, stdout, stderr)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	st, keyed, err := openStore(ctx, cfg, false)
@@ -195,7 +198,7 @@ func status(cfgPath string, stdout, stderr io.Writer) int {
 	}
 	if !keyed {
 		fmt.Fprintf(stdout, "audit        %d rows (state key not readable: run audit verify with it)\n", n)
-		return exitOK
+		return code
 	}
 	res, err := st.VerifyAudit(ctx)
 	if err != nil {
@@ -207,7 +210,48 @@ func status(cfgPath string, stdout, stderr io.Writer) int {
 		return exitBroken
 	}
 	fmt.Fprintf(stdout, "audit        %d rows, chain intact\n", n)
-	return exitOK
+	return code
+}
+
+// scopeStatus prints the privileged accounts below the scope OUs (read
+// with the service's credentials, when this process can read them) and
+// returns exitBroken when there are any.
+func scopeStatus(cfg *config.Config, stdout, stderr io.Writer) int {
+	if len(cfg.Scope.OUs) == 0 {
+		return exitOK
+	}
+	m, err := privilegedBelow(cfg, nil, stderr)
+	if err != nil {
+		fmt.Fprintf(stdout, "privileged   not checked: %v\n", err)
+		return exitOK
+	}
+	if len(m) == 0 {
+		fmt.Fprintln(stdout, "privileged   none below the scope OUs")
+		return exitOK
+	}
+	fmt.Fprintf(stdout, "privileged   %d account(s) below the scope OUs; serve refuses to start until they are moved out:\n", len(m))
+	for _, l := range server.DescribeMisplaced(m) {
+		fmt.Fprintf(stdout, "             %s\n", l)
+	}
+	return exitBroken
+}
+
+// privilegedBelow signs in with the service's credentials and lists the
+// privileged accounts below the OUs (the scope OUs when ous is nil).
+func privilegedBelow(cfg *config.Config, ous []string, stderr io.Writer) ([]server.Misplaced, error) {
+	sealed, err := loadAccountPassword(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("%w (run as the service with its credentials)", err)
+	}
+	defer sealed.Close()
+	dir, err := directory.NewAD(cfg, sealed, newLogger(stderr))
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	return server.PrivilegedInScope(ctx, cfg, dir, ous)
 }
 
 func audit(cfgPath, sub string, stdout, stderr io.Writer) int {

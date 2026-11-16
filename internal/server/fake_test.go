@@ -46,6 +46,10 @@ type fakeDir struct {
 	// passwords holds the length of each password a create set (the
 	// value itself is never kept).
 	passwords []int
+	// extraGroups are the ExtraGroupSIDs of the last BuildIndex.
+	extraGroups []sid.SID
+	// usersBelowErr, when set, is returned by UsersBelow.
+	usersBelowErr error
 }
 
 type fakeObj struct {
@@ -143,10 +147,64 @@ func (d *fakeDir) BuildIndex(_ context.Context, opt privilege.Options) (director
 	for k, v := range d.priv {
 		x.reasons[k] = v
 	}
+	d.extraGroups = slices.Clone(opt.ExtraGroupSIDs)
 	for _, g := range opt.ExtraGroupSIDs {
 		x.reasons[g.String()] = append(x.reasons[g.String()], privilege.Reason{Kind: privilege.KindGroup, Detail: g.String()})
 	}
+	// As the real index: the members of a privileged group are privileged.
+	for _, o := range d.objs {
+		for _, g := range o.groups {
+			if len(x.reasons[g.String()]) > 0 && len(x.reasons[o.entry.SID.String()]) == 0 {
+				x.reasons[o.entry.SID.String()] = []privilege.Reason{{Kind: privilege.KindGroup, Detail: g.String()}}
+			}
+		}
+	}
 	return x, nil
+}
+
+// fakeDomain is the fake directory's domain SID.
+var fakeDomain = sid.MustParse("S-1-5-21-1-2-3")
+
+func (d *fakeDir) DomainSID(context.Context) (sid.SID, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.readErr != nil {
+		return sid.SID{}, d.readErr
+	}
+	return fakeDomain, nil
+}
+
+func (d *fakeDir) FindGroupSID(_ context.Context, sam string) (sid.SID, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.readErr != nil {
+		return sid.SID{}, d.readErr
+	}
+	for _, o := range d.objs {
+		if strings.EqualFold(o.entry.SAMAccountName, sam) && slices.Contains(o.entry.Classes, "group") {
+			return o.entry.SID, nil
+		}
+	}
+	return sid.SID{}, fmt.Errorf("%w: group %q", ad.ErrNotFound, sam)
+}
+
+func (d *fakeDir) UsersBelow(_ context.Context, base string) ([]directory.Entry, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.readErr != nil {
+		return nil, d.readErr
+	}
+	if d.usersBelowErr != nil {
+		return nil, d.usersBelowErr
+	}
+	suffix := "," + escape.NormalizeDN(base)
+	var out []directory.Entry
+	for k, o := range d.objs {
+		if strings.HasSuffix(k, suffix) && o.entry.IsUser() {
+			out = append(out, o.entry)
+		}
+	}
+	return out, nil
 }
 
 // addOU adds an organizational unit.

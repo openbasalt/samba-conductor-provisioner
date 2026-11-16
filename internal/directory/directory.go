@@ -30,6 +30,13 @@ type Entry struct {
 	EmployeeID     string
 }
 
+// AdminCountSet reads the adminCount attribute: any value other than
+// empty or 0 marks the object (as conductor reads it).
+func AdminCountSet(v string) bool {
+	v = strings.TrimSpace(v)
+	return v != "" && v != "0"
+}
+
 // IsOU reports whether the entry is an organizational unit.
 func (e Entry) IsOU() bool {
 	return slices.ContainsFunc(e.Classes, func(x string) bool { return strings.EqualFold(x, "organizationalUnit") })
@@ -146,6 +153,14 @@ type Directory interface {
 	TokenGroups(ctx context.Context, dn string) ([]sid.SID, error)
 	// BuildIndex builds the privilege index.
 	BuildIndex(ctx context.Context, opt privilege.Options) (Index, error)
+	// DomainSID returns the domain's SID.
+	DomainSID(ctx context.Context) (sid.SID, error)
+	// FindGroupSID returns the SID of the group with that sAMAccountName
+	// (ad.ErrNotFound when there is none).
+	FindGroupSID(ctx context.Context, sam string) (sid.SID, error)
+	// UsersBelow returns every user account (not computers) in the
+	// subtree of base, with the attributes of EntryAttributes.
+	UsersBelow(ctx context.Context, base string) ([]Entry, error)
 	// Apply sends one write built with the ad package's constructors.
 	Apply(ctx context.Context, op *ad.Operation) error
 	// SchemaHasAttribute reports whether the schema defines an attribute

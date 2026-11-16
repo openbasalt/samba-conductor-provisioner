@@ -10,6 +10,7 @@ import (
 	"github.com/openbasalt/samba-conductor-ad/sid"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/config"
 	"github.com/openbasalt/samba-conductor-provisioner/internal/directory"
+	"github.com/openbasalt/samba-conductor-provisioner/internal/server"
 )
 
 // Schema GUIDs of the delegation (docs/delegation.md).
@@ -130,6 +131,10 @@ func delegationPreview(cfgPath, ou, accountSID string, googleFirst bool, stdout,
 		}
 	}
 	var account sid.SID
+	// Privileged accounts below the OU: checked when the directory is
+	// read (not with --account-sid).
+	var misplaced []server.Misplaced
+	checked := false
 	if accountSID != "" {
 		if account, err = sid.Parse(accountSID); err != nil {
 			fmt.Fprintln(stderr, "--account-sid:", err)
@@ -154,10 +159,29 @@ func delegationPreview(cfgPath, ou, accountSID string, googleFirst bool, stdout,
 			fmt.Fprintf(stderr, "resolving %s: %v (or pass --account-sid)\n", cfg.Account.Username, err)
 			return exitError
 		}
+		if misplaced, err = server.PrivilegedInScope(ctx, cfg, dir, []string{probe.Scope.OUs[0]}); err != nil {
+			fmt.Fprintf(stderr, "checking %s for privileged accounts: %v\n", ou, err)
+			return exitError
+		}
+		checked = true
 	}
 	fmt.Fprintf(stdout, "# Delegation of %s\n# to %s (%s).\n", ou, cfg.Account.Username, account)
 	if !inScope {
 		fmt.Fprintln(stdout, "# Note: this OU is not in [scope] ous yet; the service refuses accounts below it until it is.")
+	}
+	switch {
+	case !checked:
+		fmt.Fprintln(stdout, "# Not checked (--account-sid): privileged accounts below this OU. Run `conductor-provisioner status`")
+		fmt.Fprintln(stdout, "# once the OU is a scope OU; administrators must live outside it.")
+	case len(misplaced) > 0:
+		fmt.Fprintf(stdout, "# WARNING: %d privileged account(s) below this OU. The rights below would cover them, and serve\n", len(misplaced))
+		fmt.Fprintln(stdout, "# refuses to start while a scope OU holds one. Move them out of the OU first:")
+		for _, l := range server.DescribeMisplaced(misplaced) {
+			fmt.Fprintf(stdout, "#   %s\n", l)
+		}
+		fmt.Fprintf(stderr, "warning: %d privileged account(s) below %s\n", len(misplaced), ou)
+	default:
+		fmt.Fprintln(stdout, "# No privileged account below this OU (administrators must stay outside it).")
 	}
 	if googleFirst {
 		fmt.Fprintln(stdout, "# With the Google-first plan operations (--google-first): create user objects (CI, on the OU and")

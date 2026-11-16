@@ -48,15 +48,35 @@ whatever conductor sends:
    `CN=Computers`, the `Domain Controllers` OU or below them are refused
    when the configuration loads.
 2. Not privileged. The `privilege` index of the `ad` module (members,
-   direct or nested, of the administrative groups and of conductor's role
-   groups; `adminCount = 1`; owners and holders of more than read on the
-   domain head, an OU, AdminSDHolder or a Group Policy object), rebuilt
-   when older than `index_cache_seconds`, plus the account's own
-   `adminCount` and `tokenGroups` read at operation time. Samba does not
-   run SDProp, so this check, not AdminSDHolder, protects those accounts.
+   direct or nested, primary group included, of the administrative groups
+   and of conductor's role groups; `adminCount = 1`; owners and holders of
+   more than read on the domain head, an OU, AdminSDHolder or a Group
+   Policy object), rebuilt when older than `index_cache_seconds`, plus the
+   account's own `adminCount` (any value but 0) and `tokenGroups` read at
+   operation time. The administrative groups are conductor's protected
+   set: Domain Admins, Enterprise Admins, Schema Admins, Group Policy
+   Creator Owners, Domain Controllers, Read-only Domain Controllers,
+   Enterprise Read-only Domain Controllers, Key Admins, Enterprise Key
+   Admins (RIDs 512, 519, 518, 520, 516, 521, 498, 526, 527), the BUILTIN
+   Administrators, Account, Server, Print and Backup Operators and
+   Replicator, and the domain's DnsAdmins, found by name and then matched
+   by SID. A group nested in any of them makes its members privileged as
+   well. A read that fails (the domain SID, DnsAdmins, the index, the
+   account's groups) refuses the operation. Samba does not run SDProp, so
+   this check, not AdminSDHolder, protects those accounts.
    The delegated account itself holds rights on the scope OUs, so it is
    privileged and can never act on itself. A refusal returns the reason
    kinds only; the details go to the audit log.
+
+   The delegation covers every user object below a scope OU, so the
+   delegated account could reset a privileged account there directly over
+   LDAP if its password were stolen; the service would never see the
+   request. Administrators must therefore live outside the scope OUs.
+   `serve` lists the privileged accounts below the scope OUs at start and
+   refuses to start while there are any; every index rebuild lists them
+   again, logs each as an error and writes a `scope.check` audit entry
+   when the list changes (the accounts stay refused one by one).
+   `status` and `delegation preview` show the same list.
 3. A user account: not a computer, not a group.
 4. Ceilings: sliding one-hour windows per kind (token issues, password
    sets, enables, creates, updates, moves, disables) from the service's

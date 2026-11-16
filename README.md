@@ -29,7 +29,7 @@ family's [architecture.md](https://github.com/openbasalt/samba-conductor-docs/bl
 |---|---|
 | Least privilege | one account, member of Domain Users only, with Reset Password and three attributes on user objects below the managed OUs, plus, for Google-first, create, move and the Google-owned attributes of user objects there ([docs/delegation.md](docs/delegation.md)); no security descriptor writes, no group membership writes |
 | Scope | every target is read fresh by SID and must be strictly below a configured OU (parsed DN comparison, no referrals); built-in containers cannot be configured |
-| Privileged accounts are untouchable | the `ad` module's privilege index (administrative groups, nested; `adminCount`; rights or ownership on the domain head, OUs, AdminSDHolder, GPOs) plus the account's own groups read at operation time |
+| Privileged accounts are untouchable | the `ad` module's privilege index with conductor's protected set (administrative groups including Key Admins, Replicator and DnsAdmins, nested; `adminCount`; rights or ownership on the domain head, OUs, AdminSDHolder, GPOs) plus the account's own groups read at operation time; the service refuses to start while a privileged account sits below a scope OU |
 | Ceilings | hourly ceilings per operation kind and a daily limit per account, from the service's own root-owned configuration |
 | Only conductor | Unix socket, SO_PEERCRED: conductor's user only; typed, allowlisted, strictly decoded requests |
 | No password at rest | a new password is sent to AD and forgotten: never logged, audited, stored or returned; the service's own password is kept sealed in memory |

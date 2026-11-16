@@ -40,3 +40,11 @@ func TestEntryValues(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+func TestAdminCountSet(t *testing.T) {
+	for v, want := range map[string]bool{"1": true, " 1 ": true, "2": true, "0": false, "": false, " ": false} {
+		if AdminCountSet(v) != want {
+			t.Errorf("%q: %v", v, !want)
+		}
+	}
+}

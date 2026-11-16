@@ -75,6 +75,11 @@ func TestDelegationPreview(t *testing.T) {
 	if strings.Contains(out, "not in [scope]") {
 		t.Error("configured OU reported out of scope")
 	}
+	// Without the directory, the privileged-accounts check is not run and
+	// the preview says so.
+	if !strings.Contains(out, "# Not checked (--account-sid): privileged accounts below this OU") {
+		t.Errorf("privileged check note missing:\n%s", out)
+	}
 	if strings.Contains(out, ";CC;") || strings.Contains(out, ";SD;") || strings.Count(out, "samba-tool dsacl set") != 4 {
 		t.Errorf("without --google-first only the four invitation and reset entries:\n%s", out)
 	}
@@ -136,7 +141,10 @@ func TestAuditVerifyAndStatus(t *testing.T) {
 	if code, out, errOut := runCmd("audit", "verify", "--config", cfg); code != exitOK || !strings.Contains(out, "intact: 3 rows") {
 		t.Fatal(code, out, errOut)
 	}
-	if code, out, _ := runCmd("status", "--config", cfg); code != exitOK || !strings.Contains(out, "3 rows, chain intact") {
+	// No account password here: the privileged-accounts check is reported
+	// as not run, which does not fail status.
+	if code, out, _ := runCmd("status", "--config", cfg); code != exitOK || !strings.Contains(out, "3 rows, chain intact") ||
+		!strings.Contains(out, "privileged   not checked: ") {
 		t.Fatal(code, out)
 	}
 	if err := st.TamperForTest(ctx, 2, "x"); err != nil {

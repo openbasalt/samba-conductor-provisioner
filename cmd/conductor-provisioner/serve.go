@@ -97,6 +97,23 @@ func serve(cfgPath string, stderr io.Writer) int {
 		log.Error("service", "err", err)
 		return exitError
 	}
+	// Privileged accounts below a scope OU: the delegation covers them, so
+	// the delegated account could reset their passwords outside the
+	// service. Refuse to start until they are moved out. When the
+	// directory cannot be read yet, every index rebuild checks again.
+	cctx, ccancel := context.WithTimeout(ctx, 2*time.Minute)
+	misplaced, err := server.PrivilegedInScope(cctx, cfg, dir, nil)
+	ccancel()
+	switch {
+	case err != nil:
+		log.Warn("could not check the scope OUs for privileged accounts yet (checked again on every index rebuild)", "err", err)
+	case len(misplaced) > 0:
+		for _, l := range server.DescribeMisplaced(misplaced) {
+			log.Error("privileged account below a scope OU", "account", l)
+		}
+		log.Error("refusing to start: move privileged accounts out of the scope OUs (docs/delegation.md)", "count", len(misplaced))
+		return exitError
+	}
 	ln, err := server.NewListener(svc, cfg.API, nil)
 	if err != nil {
 		log.Error("API", "err", err)

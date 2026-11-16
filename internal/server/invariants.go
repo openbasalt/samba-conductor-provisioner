@@ -74,8 +74,11 @@ func (s *Service) index(ctx context.Context) (directory.Index, error) {
 	if s.idx != nil && maxAge > 0 && s.now().Sub(s.idx.BuiltAt()) < maxAge {
 		return s.idx, nil
 	}
-	x, err := s.dir.BuildIndex(ctx, privilege.Options{ExtraGroupSIDs: s.cfg.ExtraGroupSIDs()})
+	x, err := buildIndex(ctx, s.cfg, s.dir)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkScope(ctx, x); err != nil {
 		return nil, err
 	}
 	s.idx = x
