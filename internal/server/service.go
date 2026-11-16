@@ -10,8 +10,11 @@
 //     parsed and compared case-insensitively, is strictly below a scope
 //     OU (no referrals, no DN tricks);
 //  2. the target is not privileged (privilege index, rebuilt when older
-//     than index_cache_seconds, plus the target's own adminCount and
-//     tokenGroups read at operation time);
+//     than index_cache_seconds, with conductor's protected set, plus the
+//     target's own adminCount and tokenGroups read at operation time);
+//     every rebuild also lists privileged accounts below a scope OU, which
+//     serve refuses to start with and logs and audits at run time
+//     (protected.go);
 //  3. the target is a user account (not a computer, not a group);
 //  4. hourly ceilings per operation kind from the service's own
 //     configuration;
@@ -55,6 +58,11 @@ type Service struct {
 
 	idxMu sync.Mutex
 	idx   directory.Index
+
+	// scopeMu guards misplacedKey, the last list of privileged accounts
+	// below the scope OUs (checkScope audits each change once).
+	scopeMu      sync.Mutex
+	misplacedKey string
 }
 
 // Options configure a Service.

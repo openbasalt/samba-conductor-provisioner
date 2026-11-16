@@ -213,7 +213,7 @@ func (d *AD) Get(ctx context.Context, dn string) (Entry, error) {
 			return err
 		}
 		out = Entry{User: ad.UserFromEntry(e), Classes: e.GetAttributeValues("objectClass"),
-			AdminCount: strings.TrimSpace(e.GetAttributeValue("adminCount")) == "1",
+			AdminCount: AdminCountSet(e.GetAttributeValue("adminCount")),
 			Marker:     e.GetAttributeValue(provapi.MarkerAttribute), ProxyAddresses: e.GetAttributeValues("proxyAddresses"),
 			EmployeeID: e.GetAttributeValue("employeeID")}
 		if out.DN == "" {
@@ -247,6 +247,56 @@ func (d *AD) BuildIndex(ctx context.Context, opt privilege.Options) (Index, erro
 		return nil, err
 	}
 	return x, nil
+}
+
+// DomainSID implements Directory.
+func (d *AD) DomainSID(ctx context.Context) (sid.SID, error) {
+	var out sid.SID
+	err := d.do(ctx, func(c *ad.Conn) error {
+		var err error
+		out, err = c.DomainSID(ctx)
+		return err
+	})
+	return out, err
+}
+
+// FindGroupSID implements Directory.
+func (d *AD) FindGroupSID(ctx context.Context, sam string) (sid.SID, error) {
+	var out sid.SID
+	err := d.do(ctx, func(c *ad.Conn) error {
+		g, err := c.FindGroup(ctx, sam)
+		if err != nil {
+			return err
+		}
+		out = g.SID
+		return nil
+	})
+	return out, err
+}
+
+// UsersBelow implements Directory.
+func (d *AD) UsersBelow(ctx context.Context, base string) ([]Entry, error) {
+	var out []Entry
+	err := d.do(ctx, func(c *ad.Conn) error {
+		out = nil
+		f := escape.And(escape.Eq("objectCategory", "person"), escape.Eq("objectClass", "user"))
+		entries, err := c.SearchAll(ctx, ad.SearchRequest{BaseDN: base, Scope: ad.ScopeSubtree, Filter: f, Attributes: EntryAttributes})
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			x := Entry{User: ad.UserFromEntry(e), Classes: e.GetAttributeValues("objectClass"),
+				AdminCount: AdminCountSet(e.GetAttributeValue("adminCount"))}
+			if x.DN == "" {
+				x.DN = e.DN
+			}
+			if x.IsUser() {
+				out = append(out, x)
+			}
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Apply implements Directory.

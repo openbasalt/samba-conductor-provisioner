@@ -8,14 +8,15 @@ Every command takes `--config FILE` (default
 | Command | What it does |
 |---|---|
 | `conductor-provisioner serve` | runs the API for conductor (started by the systemd units) |
-| `conductor-provisioner status` | configuration summary (account, scope OUs, ceilings, token lifetimes), tokens by state, audit rows and, with the state key, whether the chain is intact |
+| `conductor-provisioner status` | configuration summary (account, scope OUs, ceilings, token lifetimes), with the account password the privileged accounts below the scope OUs (none is the only healthy answer), tokens by state, audit rows and, with the state key, whether the chain is intact |
 | `conductor-provisioner audit verify` | checks the audit hash chain with the state key |
 | `conductor-provisioner audit export` | writes the audit log as JSON lines, oldest first |
-| `conductor-provisioner delegation preview --ou DN [--account-sid SID] [--google-first]` | prints the `samba-tool dsacl set` commands that delegate the OU to the configured account, and the command to verify them; `--google-first` adds the rights of the plan operations ([delegation.md](delegation.md)) |
+| `conductor-provisioner delegation preview --ou DN [--account-sid SID] [--google-first]` | prints the `samba-tool dsacl set` commands that delegate the OU to the configured account, and the command to verify them; without `--account-sid` it also reads the directory and lists the privileged accounts below the OU, which must be moved out first; `--google-first` adds the rights of the plan operations ([delegation.md](delegation.md)) |
 | `conductor-provisioner healthcheck` | exits 0 when the configuration loads and the API socket exists |
 | `conductor-provisioner version` | prints the version |
 
-Exit codes: 0 success, 1 error, 2 usage, 3 the audit chain is broken.
+Exit codes: 0 success, 1 error, 2 usage, 3 the audit chain is broken or,
+for `status`, privileged accounts are below a scope OU.
 
 `status` and `audit` read the state database and the credentials, so run
 them as root (or as the service user with access to the credential

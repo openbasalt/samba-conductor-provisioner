@@ -115,6 +115,19 @@ service. An OU in the scope without the delegation makes the writes fail
 with `directory` (access denied); a delegation without the scope entry is
 never used.
 
+## Keep administrators out of the scope OUs
+
+The rights above apply to every user object below the OU, privileged or
+not. The service refuses privileged accounts itself, but a stolen
+provisioner password used directly over LDAP would not go through it. So
+no administrator, no member of a protected group (see invariant 2 in
+[design.md](design.md)) and no account with `adminCount` set may sit
+below a scope OU. `delegation preview` lists the privileged accounts below
+the OU when it reads the directory, `status` lists those below every
+scope OU, and `serve` refuses to start while there are any. Move such
+accounts out of the OU (for example to `CN=Users` or a separate admin
+OU) before delegating it.
+
 ## What the account must not have
 
 - membership of Domain Admins, Enterprise Admins, Administrators, Account
