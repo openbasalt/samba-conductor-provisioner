@@ -8,6 +8,14 @@ even if conductor is compromised.
 Part of Samba Conductor v2. Design: [docs/design.md](docs/design.md) and the
 family's [architecture.md](https://github.com/openbasalt/samba-conductor-docs/blob/main/architecture.md).
 
+Status: 0.1.2 released on 2026-11-24 (signed tag `v0.1.2`, packages
+`0.1.2-1` in the APT `stable` suite and in basalt-tools), built with Go
+1.27.4. 0.1.2 refuses to start while privileged accounts sit below a scope
+OU and aligns its protected set with conductor's. Version 0.1.1 does not
+report those accounts, so check by hand that no administrator sits under a
+scope OU before upgrading: see
+[upgrading.md](https://github.com/openbasalt/samba-conductor-docs/blob/main/upgrading.md).
+
 ## What it does
 
 - Issues one-time invitation and password reset tokens for conductor,
