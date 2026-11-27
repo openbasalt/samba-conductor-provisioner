@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/openbasalt/samba-conductor-ad v0.0.0-20261010151852-5de1a78d1cfa
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
